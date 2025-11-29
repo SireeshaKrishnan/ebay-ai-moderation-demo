@@ -155,6 +155,34 @@ def log_violation(post_id, username, violation_type, severity, confidence, evide
     
     return violation_entry
 
+def log_custom_violation(post_id, username, violation_description, severity, evidence):
+    """
+    Log a custom "Other" violation with description
+    Use this for violations that don't fit standard categories
+    
+    Example:
+    log_custom_violation("P123", "user123", "Posted in wrong language", "medium", "Post was in German")
+    """
+    violation_type = f"Other - {violation_description}"
+    
+    violation_entry = {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'post_id': post_id,
+        'username': username,
+        'violation_type': violation_type,
+        'severity': severity,
+        'confidence': 100,  # Manual violations are 100% confidence
+        'evidence': evidence,
+        'is_custom': True
+    }
+    st.session_state.violation_log.append(violation_entry)
+    
+    # Update user profile
+    update_user_profile(username, 'violation', violation_entry)
+    
+    return violation_entry
+
 def update_user_profile(username, event_type, event_data):
     """Update user profile with new events"""
     if username not in st.session_state.user_profiles:
@@ -228,22 +256,33 @@ def get_stats_for_period(start_date, end_date):
         'total_actions': len(actions_in_period),
         'total_violations': len(violations_in_period),
         
-        # Action breakdown
+        # Action breakdown - ALL possible moderation actions
         'analyzed': len([a for a in actions_in_period if a['action_type'] == 'analyzed']),
         'edited': len([a for a in actions_in_period if a['action_type'] == 'edited']),
         'removed': len([a for a in actions_in_period if a['action_type'] == 'removed']),
         'approved': len([a for a in actions_in_period if a['action_type'] == 'approved']),
+        'no_action_required': len([a for a in actions_in_period if a['action_type'] == 'no_action_required']),
         'overridden': len([a for a in actions_in_period if a['action_type'] == 'overridden']),
         'moved': len([a for a in actions_in_period if a['action_type'] == 'moved']),
+        'locked': len([a for a in actions_in_period if a['action_type'] == 'locked']),
+        'merged': len([a for a in actions_in_period if a['action_type'] == 'merged']),
         'banned': len([a for a in actions_in_period if a['action_type'] == 'banned']),
+        'warned': len([a for a in actions_in_period if a['action_type'] == 'warned']),
         
-        # Violation breakdown
+        # Violation breakdown - ALL eBay policy violations
         'pii_violations': len([v for v in violations_in_period if 'PII' in v['violation_type']]),
         'naming_violations': len([v for v in violations_in_period if 'Naming' in v['violation_type']]),
         'disrespect_violations': len([v for v in violations_in_period if 'Disrespect' in v['violation_type']]),
         'wrong_board_violations': len([v for v in violations_in_period if 'Wrong Board' in v['violation_type']]),
+        'off_topic_violations': len([v for v in violations_in_period if 'Off-Topic' in v['violation_type']]),
         'spam_violations': len([v for v in violations_in_period if 'Spam' in v['violation_type']]),
         'fee_avoidance_violations': len([v for v in violations_in_period if 'Fee' in v['violation_type']]),
+        'duplicate_violations': len([v for v in violations_in_period if 'Duplicate' in v['violation_type']]),
+        'moderation_discussion_violations': len([v for v in violations_in_period if 'Moderation' in v['violation_type']]),
+        'policy_breach_violations': len([v for v in violations_in_period if 'Policy Breach' in v['violation_type']]),
+        'necropost_violations': len([v for v in violations_in_period if 'Necropost' in v['violation_type']]),
+        'advertising_violations': len([v for v in violations_in_period if 'Advertising' in v['violation_type']]),
+        'other_violations': len([v for v in violations_in_period if 'Other' in v['violation_type']]),
         
         # Severity breakdown
         'critical': len([v for v in violations_in_period if v['severity'] == 'critical']),
@@ -524,29 +563,42 @@ with st.sidebar:
     
     st.markdown("---")
     st.subheader("🔧 Actions Taken")
+    st.caption("All moderation actions in selected period")
     
     # Show all action types with counts
-    st.markdown(f"✅ **Approved:** {period_stats['approved']}")
+    st.markdown(f"🤖 **Analyzed:** {period_stats['analyzed']}")
+    st.markdown(f"✅ **Approved/NAR:** {period_stats['no_action_required']}")
     st.markdown(f"✏️ **Edited:** {period_stats['edited']}")
     st.markdown(f"🗑️ **Removed:** {period_stats['removed']}")
     st.markdown(f"📦 **Moved:** {period_stats['moved']}")
+    st.markdown(f"🔒 **Locked:** {period_stats['locked']}")
+    st.markdown(f"🔗 **Merged:** {period_stats['merged']}")
+    st.markdown(f"⚠️ **Warned:** {period_stats['warned']}")
     st.markdown(f"🔄 **Overridden:** {period_stats['overridden']}")
     st.markdown(f"🚫 **Banned:** {period_stats['banned']}")
-    st.markdown(f"🤖 **Analyzed:** {period_stats['analyzed']}")
     
     st.markdown("---")
-    st.subheader("⚠️ Violations by Type")
+    st.subheader("⚠️ Violations Detected")
+    st.caption("Policy violations found in period")
     
-    # Show all violation types with counts
-    st.markdown(f"🚨 **PII:** {period_stats['pii_violations']}")
+    # Show all violation types with counts - Complete eBay policy list
+    st.markdown(f"🚨 **PII (Personal Info):** {period_stats['pii_violations']}")
     st.markdown(f"👤 **Naming & Shaming:** {period_stats['naming_violations']}")
     st.markdown(f"😠 **Disrespect:** {period_stats['disrespect_violations']}")
     st.markdown(f"🗂️ **Wrong Board:** {period_stats['wrong_board_violations']}")
+    st.markdown(f"📴 **Off-Topic:** {period_stats['off_topic_violations']}")
     st.markdown(f"📧 **Spam:** {period_stats['spam_violations']}")
+    st.markdown(f"📢 **Advertising:** {period_stats['advertising_violations']}")
     st.markdown(f"💰 **Fee Avoidance:** {period_stats['fee_avoidance_violations']}")
+    st.markdown(f"📋 **Duplicate Content:** {period_stats['duplicate_violations']}")
+    st.markdown(f"🔧 **Moderation Discussion:** {period_stats['moderation_discussion_violations']}")
+    st.markdown(f"⚖️ **Policy Breach:** {period_stats['policy_breach_violations']}")
+    st.markdown(f"🕰️ **Necroposting:** {period_stats['necropost_violations']}")
+    st.markdown(f"❓ **Other Violations:** {period_stats['other_violations']}")
     
     st.markdown("---")
     st.subheader("🎯 By Severity")
+    st.caption("Violation severity breakdown")
     
     st.markdown(f"🚨 **Critical:** {period_stats['critical']}")
     st.markdown(f"🔴 **High:** {period_stats['high']}")
@@ -691,6 +743,52 @@ else:
                     if st.button("👤", key=f"profile_f_{post['id']}"):
                         st.session_state.viewing_user_profile = post['username']
                         st.rerun()
+                
+                # Add custom "Other" violation button
+                if st.button("➕ Add Other Violation", key=f"other_v_{post['id']}", use_container_width=True):
+                    st.session_state[f'show_other_form_{post["id"]}'] = True
+                
+                # Show custom violation form
+                if st.session_state.get(f'show_other_form_{post["id"]}', False):
+                    with st.form(f"other_violation_form_{post['id']}"):
+                        st.markdown("**Add Custom Violation**")
+                        custom_desc = st.text_input(
+                            "Violation Description",
+                            placeholder="e.g., Posted in wrong language, Inappropriate image, etc.",
+                            key=f"custom_desc_{post['id']}"
+                        )
+                        custom_severity = st.selectbox(
+                            "Severity",
+                            ["low", "medium", "high", "critical"],
+                            key=f"custom_sev_{post['id']}"
+                        )
+                        custom_evidence = st.text_area(
+                            "Evidence/Details",
+                            placeholder="Describe what the violation was...",
+                            key=f"custom_ev_{post['id']}"
+                        )
+                        
+                        col_submit, col_cancel = st.columns(2)
+                        with col_submit:
+                            submitted = st.form_submit_button("✅ Add Violation", use_container_width=True)
+                        with col_cancel:
+                            cancelled = st.form_submit_button("❌ Cancel", use_container_width=True)
+                        
+                        if submitted and custom_desc:
+                            log_custom_violation(
+                                post['id'],
+                                post['username'],
+                                custom_desc,
+                                custom_severity,
+                                custom_evidence
+                            )
+                            st.session_state[f'show_other_form_{post["id"]}'] = False
+                            st.success(f"✅ Custom violation '{custom_desc}' logged!")
+                            st.rerun()
+                        
+                        if cancelled:
+                            st.session_state[f'show_other_form_{post["id"]}'] = False
+                            st.rerun()
         else:
             st.success("No flags")
     
