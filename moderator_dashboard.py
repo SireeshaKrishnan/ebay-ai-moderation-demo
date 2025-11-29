@@ -1,474 +1,15 @@
 import streamlit as st
+import pandas as pd
 import time
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
-# ================================
-# COMPLETE EBAY MODERATION POLICY
-# ================================
-
-MODERATION_POLICY = """
-eBay UK/AU COMMUNITY MODERATION - COMPLETE POLICY RULESET
-Version 1.0 | 100% Accuracy Required | Zero Guessing
-
-You are analyzing posts against explicit eBay policy rules.
-Only flag violations that match exact criteria below.
-
-CRITICAL: If ambiguous, flag for HUMAN REVIEW (confidence 70-85%)
-Only auto-flag with 90%+ confidence when criteria clearly match.
-
-═══════════════════════════════════════════════════════════════
-
-VIOLATION TYPES TO CHECK:
-
-1. NAMING AND SHAMING (Priority: HIGH)
-   - eBay username + negative context
-   - Item numbers + complaints
-   - Seller/buyer identification + criticism
-   - Confidence: Username + negative word = 95%+
-
-2. PERSONAL INFORMATION - PII (Priority: CRITICAL)
-   - Phone numbers (UK: 020, 07xxx | AU: 02, 04xx)
-   - Email addresses (any@domain.com)
-   - Physical addresses, postcodes
-   - Full real names in contact context
-   - Confidence: 100% (patterns are absolute)
-
-3. DISRESPECT (Priority: MEDIUM-HIGH)
-   - Profanity (even censored: f*ck, sh*t)
-   - Insults (idiot, stupid, moron)
-   - Personal attacks
-   - Hostile tone, threats
-   - Confidence: Clear insult = 98%+
-
-4. OFF-TOPIC / WRONG BOARD (Priority: MEDIUM)
-   - Technical issues in Selling board
-   - Payment questions in Shipping board
-   - Post topic doesn't match board purpose
-   - Confidence: Clear mismatch = 90%+
-
-5. SPAM & ADVERTISING (Priority: HIGH)
-   - External competitor links
-   - Promoting off-eBay transactions
-   - Fee avoidance suggestions
-   - Zero feedback + commercial content
-   - Confidence: External links = 100%
-
-6. DUPLICATE CONTENT (Priority: LOW-MEDIUM)
-   - Same user, same question, <24 hours
-   - Text similarity >80%
-   
-7. DISCUSSION OF MODERATION (Priority: MEDIUM)
-   - Complaining about moderation
-   - Reposting deleted content
-   
-8. ENCOURAGING POLICY BREACHES (Priority: MEDIUM)
-   - Suggesting rule workarounds
-   
-9. OTHER VIOLATIONS
-   - Posting private messages
-   - Copyrighted content
-   - Adult content (CRITICAL)
-
-SPECIAL RULES:
-- Mentor Forum: DO NOT moderate unless extreme
-- eBay Café: LENIENT - only severe violations
-- PII: ALWAYS Critical priority
-
-═══════════════════════════════════════════════════════════════
-"""
+# Import the ultra-strict policy (would be from separate file in production)
+from policy_engine import ULTRA_STRICT_POLICY, analyze_post_strict
 
 # ================================
-# AI ANALYSIS ENGINE
-# ================================
-
-def analyze_post_with_policy(post_content, post_id, board, username):
-    """
-    Analyze post using complete eBay moderation policy
-    Returns detailed analysis with violations, confidence, and actions
-    """
-    
-    # Simulate AI processing time
-    time.sleep(0.8)
-    
-    result = {
-        "post_id": post_id,
-        "content": post_content,
-        "board": board,
-        "username": username,
-        "overall_status": "assured",
-        "confidence": 95,
-        "priority": "low",
-        "violations_detected": [],
-        "recommended_action": "none",
-        "action_details": {},
-        "time_saved_minutes": 0,
-        "moderator_notes": "",
-        "analyzed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    
-    violations = []
-    max_confidence = 0
-    highest_priority = "low"
-    total_time_saved = 0
-    
-    # ==============================================
-    # VIOLATION 1: PERSONAL INFORMATION (PII)
-    # ==============================================
-    pii_found = []
-    
-    # Phone numbers - UK formats
-    uk_phone_patterns = [
-        r'\b(0[1-9]\d{8,9})\b',  # 020, 01xxx, 07xxx
-        r'\b(\+44\s?\d{10})\b',   # +44 format
-        r'\b(\d{3}[-.\s]?\d{3}[-.\s]?\d{4})\b'  # xxx-xxx-xxxx
-    ]
-    
-    # Phone numbers - AU formats
-    au_phone_patterns = [
-        r'\b(0[2-4]\d{8})\b',  # 02, 03, 04
-        r'\b(\+61\s?\d{9})\b'   # +61 format
-    ]
-    
-    for pattern in uk_phone_patterns + au_phone_patterns:
-        matches = re.findall(pattern, post_content)
-        if matches:
-            pii_found.append(f"Phone number: {matches[0]}")
-    
-    # Email addresses
-    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-    emails = re.findall(email_pattern, post_content)
-    if emails:
-        pii_found.append(f"Email: {emails[0]}")
-    
-    # UK Postcodes
-    uk_postcode = r'\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b'
-    postcodes = re.findall(uk_postcode, post_content, re.IGNORECASE)
-    if postcodes:
-        # Check if it's in address context
-        if any(word in post_content.lower() for word in ['address', 'located', 'ship to', 'send to']):
-            pii_found.append(f"Postcode: {postcodes[0]}")
-    
-    if pii_found:
-        violations.append({
-            "type": "PII - Personal Information",
-            "confidence": 100,
-            "evidence": ", ".join(pii_found),
-            "policy_reference": "Contact Information Sharing Policy",
-            "explanation": "Post contains personally identifiable information that must be removed immediately"
-        })
-        highest_priority = "critical"
-        max_confidence = 100
-        total_time_saved += 8
-    
-    # ==============================================
-    # VIOLATION 2: NAMING AND SHAMING
-    # ==============================================
-    
-    # Username patterns
-    username_pattern = r'\b[A-Za-z0-9_-]{3,20}\b'
-    
-    # Negative context words
-    negative_words = [
-        'scam', 'scammer', 'fraud', 'terrible', 'awful', 'worst', 
-        'avoid', 'never', 'don\'t buy', 'rip off', 'ripoff',
-        'fake', 'counterfeit', 'lying', 'liar', 'cheat', 'cheater'
-    ]
-    
-    # Item number patterns
-    item_pattern = r'(?:item\s*#?\s*)?(\d{10,12})'
-    
-    content_lower = post_content.lower()
-    
-    # Check for username + negative context
-    has_negative = any(word in content_lower for word in negative_words)
-    
-    if has_negative:
-        # Look for seller/buyer mentions
-        if re.search(r'\b(?:seller|buyer)\s+[A-Za-z0-9_-]{3,20}\b', post_content, re.IGNORECASE):
-            violations.append({
-                "type": "Naming and Shaming",
-                "confidence": 94,
-                "evidence": "Username mentioned in negative context",
-                "policy_reference": "Board Usage Policy - Naming and Shaming",
-                "explanation": "Post identifies a specific member with criticism or complaint"
-            })
-            if highest_priority in ["low", "medium"]:
-                highest_priority = "high"
-            max_confidence = max(max_confidence, 94)
-            total_time_saved += 3
-    
-    # Check for item numbers in complaints
-    if has_negative:
-        items = re.findall(item_pattern, post_content)
-        if items:
-            violations.append({
-                "type": "Naming and Shaming - Item Number",
-                "confidence": 92,
-                "evidence": f"Item number {items[0]} mentioned with complaint",
-                "policy_reference": "Board Usage Policy - Naming and Shaming",
-                "explanation": "Specific item identification used to shame or criticize"
-            })
-            if highest_priority in ["low", "medium"]:
-                highest_priority = "high"
-            max_confidence = max(max_confidence, 92)
-            total_time_saved += 3
-    
-    # ==============================================
-    # VIOLATION 3: DISRESPECT
-    # ==============================================
-    
-    # Profanity patterns (including censored)
-    profanity_patterns = [
-        r'\bf[\*\@]ck', r'\bsh[\*\!]t', r'\bd[\@\*]mn', 
-        r'\bb[\*\!]tch', r'\b[\@\*]ss', r'\barse\b'
-    ]
-    
-    for pattern in profanity_patterns:
-        if re.search(pattern, content_lower):
-            violations.append({
-                "type": "Disrespect - Profanity",
-                "confidence": 98,
-                "evidence": "Profane language detected (even censored)",
-                "policy_reference": "Board Usage Policy - Be Respectful",
-                "explanation": "Post contains profanity which violates respectful communication policy"
-            })
-            if highest_priority == "low":
-                highest_priority = "medium"
-            max_confidence = max(max_confidence, 98)
-            total_time_saved += 4
-            break
-    
-    # Direct insults
-    insults = ['idiot', 'stupid', 'dumb', 'moron', 'fool', 'ridiculous person']
-    for insult in insults:
-        if insult in content_lower:
-            violations.append({
-                "type": "Disrespect - Insult",
-                "confidence": 96,
-                "evidence": f"Contains insult: '{insult}'",
-                "policy_reference": "Board Usage Policy - Be Respectful",
-                "explanation": "Direct personal attack violates community respect standards"
-            })
-            if highest_priority in ["low", "medium"]:
-                highest_priority = "high"
-            max_confidence = max(max_confidence, 96)
-            total_time_saved += 6
-            break
-    
-    # ==============================================
-    # VIOLATION 4: WRONG BOARD
-    # ==============================================
-    
-    board_topics = {
-        "Selling": ["list", "listing", "sell", "price", "product", "inventory"],
-        "Buying": ["buy", "purchase", "bidding", "offer", "looking for"],
-        "Payments": ["payment", "refund", "paypal", "transaction", "charge"],
-        "Postage & Shipping": ["shipping", "delivery", "postage", "courier", "tracking"],
-        "Technical Issues": ["error", "bug", "can't login", "app crash", "website problem"],
-        "Member to Member Support": ["policy", "account", "help", "advice", "question"]
-    }
-    
-    # Don't check wrong board for Café or Mentors
-    if board not in ["eBay Café", "Mentors Forum", "General Discussion"]:
-        if board in board_topics:
-            allowed_keywords = board_topics[board]
-            
-            # Check if post content matches board topic
-            content_keywords = content_lower.split()
-            topic_match = any(keyword in content_lower for keyword in allowed_keywords)
-            
-            # Check if it matches OTHER board topics better
-            better_board = None
-            for other_board, keywords in board_topics.items():
-                if other_board != board:
-                    other_match = any(keyword in content_lower for keyword in keywords)
-                    if other_match and not topic_match:
-                        better_board = other_board
-                        break
-            
-            if better_board:
-                violations.append({
-                    "type": "Wrong Board Placement",
-                    "confidence": 87,
-                    "evidence": f"Topic better suited for {better_board} board",
-                    "policy_reference": "Board Usage Policy - Stay On Topic",
-                    "explanation": f"Post appears to be about {better_board.lower()} but posted in {board}"
-                })
-                if highest_priority == "low":
-                    highest_priority = "medium"
-                max_confidence = max(max_confidence, 87)
-                total_time_saved += 2
-                result["action_details"]["move_to_board"] = better_board
-    
-    # ==============================================
-    # VIOLATION 5: SPAM & ADVERTISING
-    # ==============================================
-    
-    # External competitor links
-    competitor_domains = [
-        'amazon.com', 'amazon.co.uk', 'amazon.com.au',
-        'facebook.com/marketplace', 'etsy.com', 'gumtree.com.au'
-    ]
-    
-    for domain in competitor_domains:
-        if domain in content_lower:
-            violations.append({
-                "type": "Spam - External Link",
-                "confidence": 100,
-                "evidence": f"Link to competitor: {domain}",
-                "policy_reference": "Board Usage Policy - Advertising",
-                "explanation": "External marketplace links are prohibited"
-            })
-            highest_priority = "high"
-            max_confidence = 100
-            total_time_saved += 5
-            break
-    
-    # Fee avoidance language
-    fee_avoidance = ['avoid fees', 'outside ebay', 'contact me directly', 'skip ebay fees']
-    if any(phrase in content_lower for phrase in fee_avoidance):
-        violations.append({
-            "type": "Fee Avoidance",
-            "confidence": 95,
-            "evidence": "Suggests avoiding eBay fees",
-            "policy_reference": "Avoiding eBay Fees Policy",
-            "explanation": "Encouraging off-platform transactions to avoid fees"
-        })
-        if highest_priority in ["low", "medium"]:
-            highest_priority = "high"
-        max_confidence = max(max_confidence, 95)
-        total_time_saved += 5
-    
-    # ==============================================
-    # VIOLATION 6: DISCUSSION OF MODERATION
-    # ==============================================
-    
-    mod_discussion = ['why was my post deleted', 'moderator', 'censorship', 'unfairly banned']
-    if any(phrase in content_lower for phrase in mod_discussion):
-        violations.append({
-            "type": "Discussion of Moderation",
-            "confidence": 90,
-            "evidence": "Discusses moderation actions",
-            "policy_reference": "Board Usage Policy - Discussion of Moderation",
-            "explanation": "Moderation discussions should be private"
-        })
-        if highest_priority == "low":
-            highest_priority = "medium"
-        max_confidence = max(max_confidence, 90)
-        total_time_saved += 3
-    
-    # ==============================================
-    # FINAL DECISION
-    # ==============================================
-    
-    if violations:
-        result["overall_status"] = "flagged"
-        result["violations_detected"] = violations
-        result["confidence"] = max_confidence
-        result["priority"] = highest_priority
-        result["time_saved_minutes"] = total_time_saved
-        
-        # Determine recommended action
-        if highest_priority == "critical":
-            result["recommended_action"] = "edit"
-            result["moderator_notes"] = "⚠️ URGENT: Contains PII - must edit immediately"
-        elif highest_priority == "high":
-            if any(v["type"].startswith("Naming") for v in violations):
-                result["recommended_action"] = "edit"
-                result["moderator_notes"] = "Edit to remove identifying information"
-            elif any(v["type"].startswith("Spam") for v in violations):
-                result["recommended_action"] = "remove"
-                result["moderator_notes"] = "Remove spam/advertising content"
-            else:
-                result["recommended_action"] = "edit"
-                result["moderator_notes"] = "Edit to address violations"
-        elif highest_priority == "medium":
-            if "Wrong Board" in [v["type"] for v in violations]:
-                result["recommended_action"] = "move"
-                result["moderator_notes"] = f"Move to {result['action_details'].get('move_to_board', 'appropriate')} board"
-            else:
-                result["recommended_action"] = "edit"
-                result["moderator_notes"] = "Minor edit required"
-        else:
-            result["recommended_action"] = "review"
-            result["moderator_notes"] = "Human review recommended"
-    else:
-        # No violations - assured clean
-        result["overall_status"] = "assured"
-        result["confidence"] = 95
-        result["priority"] = "low"
-        result["moderator_notes"] = "✅ No violations detected - post appears compliant"
-        result["time_saved_minutes"] = 2  # Time saved by not needing deep review
-    
-    return result
-
-# ================================
-# SAMPLE DATA
-# ================================
-
-SAMPLE_POSTS = [
-    {
-        "post_id": "P001",
-        "username": "HelpfulSeller",
-        "board": "Selling",
-        "content": "What's the best way to price vintage collectibles? I have some rare items.",
-        "submitted_at": "2025-11-29 14:23:10"
-    },
-    {
-        "post_id": "P002",
-        "username": "FrustratedBuyer",
-        "board": "Buying",
-        "content": "Seller abc123 is a total scammer! Never shipped my item. Call me at 020-5555-1234 if this happened to you!",
-        "submitted_at": "2025-11-29 14:25:33"
-    },
-    {
-        "post_id": "P003",
-        "username": "AngryUser",
-        "board": "Community",
-        "content": "You're all idiots if you think eBay cares about sellers. F*cking ridiculous!",
-        "submitted_at": "2025-11-29 14:28:45"
-    },
-    {
-        "post_id": "P004",
-        "username": "TechHelper",
-        "board": "Selling",
-        "content": "My app keeps crashing when I try to login. Anyone else having this issue?",
-        "submitted_at": "2025-11-29 14:30:12"
-    },
-    {
-        "post_id": "P005",
-        "username": "SatisfiedCustomer",
-        "board": "Community Spirit",
-        "content": "Excellent seller! Fast shipping and item exactly as described. Highly recommend!",
-        "submitted_at": "2025-11-29 14:32:55"
-    },
-    {
-        "post_id": "P006",
-        "username": "SpamBot",
-        "board": "Selling",
-        "content": "Better deals on Amazon.com! Skip eBay fees and shop direct!",
-        "submitted_at": "2025-11-29 14:35:18"
-    },
-    {
-        "post_id": "P007",
-        "username": "GenuineQuestion",
-        "board": "Payments",
-        "content": "How long does it take for refunds to process after a return?",
-        "submitted_at": "2025-11-29 14:37:42"
-    },
-    {
-        "post_id": "P008",
-        "username": "NewUser",
-        "board": "Member to Member Support",
-        "content": "Can someone explain the seller protection policy? I'm new to selling.",
-        "submitted_at": "2025-11-29 14:40:05"
-    }
-]
-
-# ================================
-# STREAMLIT UI
+# PAGE CONFIG
 # ================================
 
 st.set_page_config(
@@ -477,188 +18,682 @@ st.set_page_config(
     layout="wide"
 )
 
-# Header
+# Custom CSS for color coding
+st.markdown("""
+<style>
+/* Green - AI Approved */
+.approved-section {
+    background-color: #d4edda !important;
+    border-left: 5px solid #28a745 !important;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+}
+
+/* Blue variations - User Reported */
+.user-reported-low {
+    background-color: #d1ecf1 !important;
+    border-left: 5px solid #17a2b8 !important;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+}
+
+.user-reported-medium {
+    background-color: #b8daff !important;
+    border-left: 5px solid #0056b3 !important;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+}
+
+.user-reported-high {
+    background-color: #9fcdff !important;
+    border-left: 5px solid #003d82 !important;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+}
+
+/* Red variations - AI Flagged */
+.flagged-low {
+    background-color: #fff3cd !important;
+    border-left: 5px solid #ffc107 !important;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+}
+
+.flagged-medium {
+    background-color: #f8d7da !important;
+    border-left: 5px solid #dc3545 !important;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+}
+
+.flagged-high {
+    background-color: #f5c6cb !important;
+    border-left: 5px solid #bd2130 !important;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+}
+
+.flagged-critical {
+    background-color: #e7b3ba !important;
+    border-left: 5px solid #8b0000 !important;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 5px;
+    font-weight: bold;
+}
+
+.stat-card {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ================================
+# SAMPLE DATA WITH TIMESTAMPS
+# ================================
+
+def generate_sample_data():
+    """Generate sample posts with various violation types and timestamps"""
+    base_date = datetime.now()
+    
+    posts = [
+        # AI APPROVED - Green
+        {
+            "post_id": "P001",
+            "source": "ai_approved",
+            "username": "HelpfulSeller",
+            "board": "Selling",
+            "content": "What's the best way to price vintage collectibles? I have some rare stamps.",
+            "timestamp": base_date - timedelta(hours=2),
+            "status": "assured",
+            "priority": "low",
+            "confidence": 96,
+            "violations": [],
+            "time_saved": 2
+        },
+        {
+            "post_id": "P002",
+            "source": "ai_approved",
+            "username": "NewSeller123",
+            "board": "Member to Member Support",
+            "content": "Can someone explain the seller protection policy? I'm new to selling.",
+            "timestamp": base_date - timedelta(hours=5),
+            "status": "assured",
+            "priority": "low",
+            "confidence": 98,
+            "violations": [],
+            "time_saved": 2
+        },
+        {
+            "post_id": "P003",
+            "source": "ai_approved",
+            "username": "SatisfiedBuyer",
+            "board": "Community Spirit",
+            "content": "Excellent seller! Fast shipping and item exactly as described. Highly recommend!",
+            "timestamp": base_date - timedelta(days=1, hours=3),
+            "status": "assured",
+            "priority": "low",
+            "confidence": 99,
+            "violations": [],
+            "time_saved": 2
+        },
+        
+        # USER REPORTED - Blue variations
+        {
+            "post_id": "P004",
+            "source": "user_reported",
+            "username": "ConfusedUser",
+            "board": "Buying",
+            "content": "I'm looking for vintage cameras. Anyone selling?",
+            "timestamp": base_date - timedelta(hours=1),
+            "status": "reported",
+            "priority": "low",
+            "confidence": 75,
+            "report_reason": "Possible wanted post (against policy)",
+            "reporter": "CommunityExpert42",
+            "violations": [],
+            "time_saved": 1
+        },
+        {
+            "post_id": "P005",
+            "source": "user_reported",
+            "username": "DebatingUser",
+            "board": "General Discussion",
+            "content": "I disagree with the new shipping policy. It doesn't make sense for international sellers.",
+            "timestamp": base_date - timedelta(hours=4),
+            "status": "reported",
+            "priority": "medium",
+            "confidence": 70,
+            "report_reason": "Possible policy breach discussion",
+            "reporter": "Moderator_Assistant",
+            "violations": [],
+            "time_saved": 2
+        },
+        {
+            "post_id": "P006",
+            "source": "user_reported",
+            "username": "FrustratedSeller",
+            "board": "Selling",
+            "content": "Why was my listing removed? I followed all the rules!",
+            "timestamp": base_date - timedelta(days=1),
+            "status": "reported",
+            "priority": "high",
+            "confidence": 85,
+            "report_reason": "Discussion of moderation action",
+            "reporter": "Sandy_Pebbles",
+            "violations": ["Discussion of Moderation"],
+            "time_saved": 3
+        },
+        
+        # AI FLAGGED - Red variations
+        {
+            "post_id": "P007",
+            "source": "ai_flagged",
+            "username": "TechHelper",
+            "board": "Selling",
+            "content": "My app keeps crashing when I try to login. Anyone else having this issue?",
+            "timestamp": base_date - timedelta(hours=3),
+            "status": "flagged",
+            "priority": "medium",
+            "confidence": 92,
+            "violations": [
+                {
+                    "type": "Wrong Board Placement",
+                    "evidence": "Technical issue posted in Selling board",
+                    "policy": "Board Usage Policy - Stay On Topic",
+                    "confidence": 92
+                }
+            ],
+            "recommended_action": "move",
+            "move_to": "Technical Issues",
+            "time_saved": 2
+        },
+        {
+            "post_id": "P008",
+            "source": "ai_flagged",
+            "username": "AngryUser",
+            "board": "Community",
+            "content": "You're all idiots if you think eBay cares about sellers. F*cking ridiculous!",
+            "timestamp": base_date - timedelta(hours=6),
+            "status": "flagged",
+            "priority": "high",
+            "confidence": 98,
+            "violations": [
+                {
+                    "type": "Disrespect - Insult",
+                    "evidence": "\"You're all idiots\"",
+                    "policy": "Board Usage Policy - Be Respectful",
+                    "confidence": 96
+                },
+                {
+                    "type": "Disrespect - Profanity",
+                    "evidence": "\"F*cking\"",
+                    "policy": "Board Usage Policy - Be Respectful",
+                    "confidence": 98
+                }
+            ],
+            "recommended_action": "edit",
+            "time_saved": 6
+        },
+        {
+            "post_id": "P009",
+            "source": "ai_flagged",
+            "username": "FrustratedBuyer",
+            "board": "Buying",
+            "content": "Seller abc123 is a total scammer! Never shipped my item. Call me at 020-5555-1234 if this happened to you!",
+            "timestamp": base_date - timedelta(days=1, hours=2),
+            "status": "flagged",
+            "priority": "critical",
+            "confidence": 100,
+            "violations": [
+                {
+                    "type": "PII - Phone Number",
+                    "evidence": "020-5555-1234",
+                    "policy": "Contact Information Sharing Policy",
+                    "confidence": 100
+                },
+                {
+                    "type": "Naming and Shaming",
+                    "evidence": "\"Seller abc123 is a total scammer\"",
+                    "policy": "Board Usage Policy - Naming and Shaming",
+                    "confidence": 96
+                }
+            ],
+            "recommended_action": "edit",
+            "time_saved": 11
+        },
+        {
+            "post_id": "P010",
+            "source": "ai_flagged",
+            "username": "SpamBot",
+            "board": "Selling",
+            "content": "Better deals on Amazon.com! Skip eBay fees and shop direct!",
+            "timestamp": base_date - timedelta(hours=8),
+            "status": "flagged",
+            "priority": "high",
+            "confidence": 100,
+            "violations": [
+                {
+                    "type": "Spam - External Link",
+                    "evidence": "amazon.com",
+                    "policy": "Board Usage Policy - Advertising",
+                    "confidence": 100
+                },
+                {
+                    "type": "Fee Avoidance",
+                    "evidence": "\"Skip eBay fees\"",
+                    "policy": "Avoiding eBay Fees Policy",
+                    "confidence": 95
+                }
+            ],
+            "recommended_action": "remove",
+            "time_saved": 10
+        }
+    ]
+    
+    return posts
+
+# ================================
+# SESSION STATE INITIALIZATION
+# ================================
+
+if 'posts_data' not in st.session_state:
+    st.session_state.posts_data = generate_sample_data()
+    st.session_state.filter_start_date = datetime.now() - timedelta(days=30)
+    st.session_state.filter_end_date = datetime.now()
+    st.session_state.selected_board = "All Boards"
+    st.session_state.selected_priority = "All Priorities"
+
+# ================================
+# HEADER
+# ================================
+
 st.title("🛡️ eBay Community AI Moderation Dashboard")
-st.markdown("**Powered by AI Policy Analysis Engine**")
+st.markdown("**Advanced Multi-Stream Monitoring System**")
 st.markdown("---")
 
-# Initialize session state
-if 'analyzed_posts' not in st.session_state:
-    st.session_state.analyzed_posts = []
-    st.session_state.analyzing = False
+# ================================
+# DATE RANGE FILTER SIDEBAR
+# ================================
 
-# Stats bar
-col1, col2, col3, col4 = st.columns(4)
+with st.sidebar:
+    st.header("📊 Analytics Filters")
+    
+    st.subheader("Date Range")
+    
+    # Quick filters
+    quick_filter = st.selectbox(
+        "Quick Select",
+        ["Custom Range", "Today", "Yesterday", "Last 7 Days", "Last 30 Days", "This Month", "Last Month"]
+    )
+    
+    if quick_filter == "Today":
+        st.session_state.filter_start_date = datetime.now().replace(hour=0, minute=0, second=0)
+        st.session_state.filter_end_date = datetime.now()
+    elif quick_filter == "Yesterday":
+        st.session_state.filter_start_date = (datetime.now() - timedelta(days=1)).replace(hour=0, minute=0, second=0)
+        st.session_state.filter_end_date = (datetime.now() - timedelta(days=1)).replace(hour=23, minute=59, second=59)
+    elif quick_filter == "Last 7 Days":
+        st.session_state.filter_start_date = datetime.now() - timedelta(days=7)
+        st.session_state.filter_end_date = datetime.now()
+    elif quick_filter == "Last 30 Days":
+        st.session_state.filter_start_date = datetime.now() - timedelta(days=30)
+        st.session_state.filter_end_date = datetime.now()
+    elif quick_filter == "This Month":
+        st.session_state.filter_start_date = datetime.now().replace(day=1, hour=0, minute=0, second=0)
+        st.session_state.filter_end_date = datetime.now()
+    elif quick_filter == "Last Month":
+        last_month = datetime.now().replace(day=1) - timedelta(days=1)
+        st.session_state.filter_start_date = last_month.replace(day=1, hour=0, minute=0, second=0)
+        st.session_state.filter_end_date = last_month.replace(hour=23, minute=59, second=59)
+    
+    if quick_filter == "Custom Range":
+        st.session_state.filter_start_date = st.date_input(
+            "Start Date",
+            value=datetime.now() - timedelta(days=30)
+        )
+        st.session_state.filter_end_date = st.date_input(
+            "End Date",
+            value=datetime.now()
+        )
+    else:
+        st.info(f"Showing: {quick_filter}")
+    
+    st.markdown("---")
+    
+    # Board filter
+    st.subheader("Board Filter")
+    all_boards = ["All Boards"] + sorted(list(set([p['board'] for p in st.session_state.posts_data])))
+    st.session_state.selected_board = st.selectbox("Select Board", all_boards)
+    
+    # Priority filter
+    st.subheader("Priority Filter")
+    all_priorities = ["All Priorities", "Critical", "High", "Medium", "Low"]
+    st.session_state.selected_priority = st.selectbox("Select Priority", all_priorities)
+    
+    st.markdown("---")
+    st.caption("💡 Tip: Use date ranges to track trends over time")
+
+# ================================
+# FILTER DATA
+# ================================
+
+def filter_posts(posts, start_date, end_date, board, priority):
+    """Filter posts based on date range, board, and priority"""
+    filtered = []
+    
+    for post in posts:
+        # Convert start/end to datetime if they're date objects
+        if isinstance(start_date, datetime):
+            start_dt = start_date
+        else:
+            start_dt = datetime.combine(start_date, datetime.min.time())
+            
+        if isinstance(end_date, datetime):
+            end_dt = end_date
+        else:
+            end_dt = datetime.combine(end_date, datetime.max.time())
+        
+        # Date filter
+        if not (start_dt <= post['timestamp'] <= end_dt):
+            continue
+        
+        # Board filter
+        if board != "All Boards" and post['board'] != board:
+            continue
+        
+        # Priority filter
+        if priority != "All Priorities" and post.get('priority', '').lower() != priority.lower():
+            continue
+        
+        filtered.append(post)
+    
+    return filtered
+
+filtered_posts = filter_posts(
+    st.session_state.posts_data,
+    st.session_state.filter_start_date,
+    st.session_state.filter_end_date,
+    st.session_state.selected_board,
+    st.session_state.selected_priority
+)
+
+# ================================
+# SUMMARY STATISTICS
+# ================================
+
+ai_approved = [p for p in filtered_posts if p['source'] == 'ai_approved']
+user_reported = [p for p in filtered_posts if p['source'] == 'user_reported']
+ai_flagged = [p for p in filtered_posts if p['source'] == 'ai_flagged']
+
+total_time_saved = sum([p.get('time_saved', 0) for p in filtered_posts])
+
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
-    st.metric("Total Posts Analyzed", len(st.session_state.analyzed_posts))
+    st.metric("Total Posts", len(filtered_posts))
 
 with col2:
-    assured = len([p for p in st.session_state.analyzed_posts if p['overall_status'] == 'assured'])
-    st.metric("AI Assured", assured, delta=f"{assured}/{len(st.session_state.analyzed_posts) or 1}")
+    st.metric("✅ AI Approved", len(ai_approved), 
+              delta=f"{len(ai_approved)/max(len(filtered_posts),1)*100:.0f}%",
+              delta_color="normal")
 
 with col3:
-    flagged = len([p for p in st.session_state.analyzed_posts if p['overall_status'] == 'flagged'])
-    st.metric("Flagged", flagged, delta=f"{flagged}/{len(st.session_state.analyzed_posts) or 1}")
+    st.metric("👤 User Reported", len(user_reported),
+              delta=f"{len(user_reported)/max(len(filtered_posts),1)*100:.0f}%",
+              delta_color="off")
 
 with col4:
-    total_time = sum([p.get('time_saved_minutes', 0) for p in st.session_state.analyzed_posts])
-    st.metric("Time Saved", f"{total_time} min")
+    st.metric("🚨 AI Flagged", len(ai_flagged),
+              delta=f"{len(ai_flagged)/max(len(filtered_posts),1)*100:.0f}%",
+              delta_color="inverse")
+
+with col5:
+    st.metric("⏱️ Time Saved", f"{total_time_saved} min",
+              delta=f"{total_time_saved/60:.1f} hrs")
 
 st.markdown("---")
 
-# Analyze Sample Posts Button
-if st.button("🔄 Analyze Sample Posts", type="primary"):
-    st.session_state.analyzing = True
-    st.session_state.analyzed_posts = []
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for i, post in enumerate(SAMPLE_POSTS):
-        status_text.text(f"Analyzing post {i+1}/{len(SAMPLE_POSTS)}: {post['post_id']}")
-        
-        # Analyze with full policy
-        analysis = analyze_post_with_policy(
-            post['content'],
-            post['post_id'],
-            post['board'],
-            post['username']
-        )
-        
-        # Add original post data
-        analysis['submitted_at'] = post['submitted_at']
-        
-        st.session_state.analyzed_posts.append(analysis)
-        progress_bar.progress((i + 1) / len(SAMPLE_POSTS))
-    
-    status_text.text("✅ Analysis complete!")
-    time.sleep(1)
-    status_text.empty()
-    progress_bar.empty()
-    st.session_state.analyzing = False
-    st.rerun()
+# ================================
+# THREE COLUMNS LAYOUT
+# ================================
 
-# Display Results in Two Columns
-if st.session_state.analyzed_posts:
+col_approved, col_reported, col_flagged = st.columns(3)
+
+# ================================
+# COLUMN 1: AI APPROVED (GREEN)
+# ================================
+
+with col_approved:
+    st.subheader("✅ AI Approved Posts")
+    st.caption(f"**{len(ai_approved)} posts** - No violations detected")
     
-    col_left, col_right = st.columns([1, 1])
+    if ai_approved:
+        for post in sorted(ai_approved, key=lambda x: x['timestamp'], reverse=True):
+            st.markdown(f"""
+            <div class="approved-section">
+                <strong>Post #{post['post_id']}</strong> | Board: {post['board']}<br>
+                👤 {post['username']} | 🕒 {post['timestamp'].strftime('%Y-%m-%d %H:%M')}<br><br>
+                📝 <em>{post['content'][:120]}{'...' if len(post['content']) > 120 else ''}</em><br><br>
+                <strong>Status:</strong> ✅ ASSURED | Confidence: {post['confidence']}%<br>
+                ⏱️ Time saved: {post['time_saved']} min
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("🔍 View Full Post", key=f"view_approve_{post['post_id']}"):
+                    st.info(f"Full content: {post['content']}")
+            with col_b:
+                if st.button("⚠️ Flag Manually", key=f"flag_{post['post_id']}"):
+                    st.warning("Post marked for manual review")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.info("No approved posts in selected date range")
+
+# ================================
+# COLUMN 2: USER REPORTED (BLUE)
+# ================================
+
+with col_reported:
+    st.subheader("👤 User Reported Posts")
+    st.caption(f"**{len(user_reported)} posts** - Community flagged content")
     
-    # LEFT COLUMN: AI ASSURED POSTS
-    with col_left:
-        st.subheader("✅ AI Assured Posts")
-        st.caption("No violations detected - minimal review needed")
+    if user_reported:
+        # Sort by priority
+        priority_order = {'high': 0, 'medium': 1, 'low': 2}
+        sorted_reported = sorted(user_reported, key=lambda x: priority_order.get(x.get('priority', 'low').lower(), 3))
         
-        assured_posts = [p for p in st.session_state.analyzed_posts if p['overall_status'] == 'assured']
-        
-        if assured_posts:
-            for post in assured_posts:
-                with st.container():
-                    st.markdown(f"""
-                    **Post #{post['post_id']}** | Board: {post['board']}  
-                    👤 {post['username']} | 🕒 {post['submitted_at']}
-                    
-                    📝 *{post['content'][:150]}...*
-                    
-                    **Status:** ✅ ASSURED | Confidence: {post['confidence']}%  
-                    {post['moderator_notes']}
-                    """)
-                    
-                    if st.button(f"Override (Flag as Violation)", key=f"override_{post['post_id']}"):
-                        st.warning("Post marked for manual review")
-                    
-                    st.markdown("---")
-        else:
-            st.info("No assured posts yet")
+        for post in sorted_reported:
+            priority = post.get('priority', 'low').lower()
+            
+            if priority == 'high':
+                css_class = "user-reported-high"
+                emoji = "🔵🔵🔵"
+            elif priority == 'medium':
+                css_class = "user-reported-medium"
+                emoji = "🔵🔵"
+            else:
+                css_class = "user-reported-low"
+                emoji = "🔵"
+            
+            st.markdown(f"""
+            <div class="{css_class}">
+                {emoji} <strong>{priority.upper()}</strong> | <strong>Post #{post['post_id']}</strong><br>
+                Board: {post['board']} | 👤 {post['username']}<br>
+                🕒 {post['timestamp'].strftime('%Y-%m-%d %H:%M')}<br><br>
+                📝 <em>{post['content'][:120]}{'...' if len(post['content']) > 120 else ''}</em><br><br>
+                <strong>Reported by:</strong> {post.get('reporter', 'Unknown')}<br>
+                <strong>Reason:</strong> {post.get('report_reason', 'Not specified')}<br>
+                ⏱️ Needs review: ~{post['time_saved']} min
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                if st.button("✅ No Violation", key=f"clear_report_{post['post_id']}"):
+                    st.success("Report dismissed")
+            with col_b:
+                if st.button("✏️ Edit Post", key=f"edit_report_{post['post_id']}"):
+                    st.info("Opening editor...")
+            with col_c:
+                if st.button("🚫 Remove", key=f"remove_report_{post['post_id']}"):
+                    st.warning("Post removed")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.success("No user reports in selected date range")
+
+# ================================
+# COLUMN 3: AI FLAGGED (RED)
+# ================================
+
+with col_flagged:
+    st.subheader("🚨 AI Flagged Posts")
+    st.caption(f"**{len(ai_flagged)} posts** - Policy violations detected")
     
-    # RIGHT COLUMN: FLAGGED POSTS
-    with col_right:
-        st.subheader("⚠️ Flagged Posts")
-        st.caption("AI detected potential violations - needs review")
-        
-        flagged_posts = [p for p in st.session_state.analyzed_posts if p['overall_status'] == 'flagged']
-        
+    if ai_flagged:
         # Sort by priority
         priority_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
-        flagged_posts.sort(key=lambda x: priority_order.get(x['priority'], 4))
+        sorted_flagged = sorted(ai_flagged, key=lambda x: priority_order.get(x.get('priority', 'low').lower(), 4))
         
-        if flagged_posts:
-            for post in flagged_posts:
-                priority_emoji = {
-                    'critical': '🚨',
-                    'high': '⚠️',
-                    'medium': '📋',
-                    'low': 'ℹ️'
-                }
-                
-                with st.container():
+        for post in sorted_flagged:
+            priority = post.get('priority', 'low').lower()
+            
+            if priority == 'critical':
+                css_class = "flagged-critical"
+                emoji = "🚨"
+            elif priority == 'high':
+                css_class = "flagged-high"
+                emoji = "🔴"
+            elif priority == 'medium':
+                css_class = "flagged-medium"
+                emoji = "🟠"
+            else:
+                css_class = "flagged-low"
+                emoji = "🟡"
+            
+            st.markdown(f"""
+            <div class="{css_class}">
+                {emoji} <strong>{priority.upper()}</strong> | <strong>Post #{post['post_id']}</strong><br>
+                Board: {post['board']} | 👤 {post['username']}<br>
+                🕒 {post['timestamp'].strftime('%Y-%m-%d %H:%M')}<br><br>
+                📝 <em>{post['content'][:120]}{'...' if len(post['content']) > 120 else ''}</em><br><br>
+            """, unsafe_allow_html=True)
+            
+            # Show violations
+            if post.get('violations'):
+                st.markdown("**Violations Detected:**", unsafe_allow_html=True)
+                for v in post['violations']:
                     st.markdown(f"""
-                    {priority_emoji[post['priority']]} **{post['priority'].upper()}** | **Post #{post['post_id']}**  
-                    Board: {post['board']} | 👤 {post['username']} | 🕒 {post['submitted_at']}
-                    
-                    📝 *{post['content'][:150]}...*
-                    """)
-                    
-                    # Show violations
-                    st.markdown("**Violations Detected:**")
-                    for v in post['violations_detected']:
-                        st.markdown(f"""
-                        - **{v['type']}** ({v['confidence']}% confidence)
-                          - Evidence: {v['evidence']}
-                          - Policy: {v['policy_reference']}
-                        """)
-                    
-                    st.markdown(f"**AI Recommendation:** {post['recommended_action'].upper()}")
-                    st.info(post['moderator_notes'])
-                    
-                    # Action buttons
-                    col_a, col_b, col_c = st.columns(3)
-                    with col_a:
-                        if st.button(f"✅ Accept AI Action", key=f"accept_{post['post_id']}"):
-                            st.success(f"Action accepted: {post['recommended_action']}")
-                    with col_b:
-                        if st.button(f"✏️ Manual Edit", key=f"edit_{post['post_id']}"):
-                            st.info("Opening manual editor...")
-                    with col_c:
-                        if st.button(f"🔄 Override", key=f"override_flag_{post['post_id']}"):
-                            st.warning("Marked for different action")
-                    
-                    st.markdown(f"⏱️ *Time saved: {post['time_saved_minutes']} minutes*")
-                    st.markdown("---")
-        else:
-            st.success("No flagged posts - all clean!")
+                    • **{v['type']}** ({v['confidence']}% confidence)<br>
+                    &nbsp;&nbsp;&nbsp;Evidence: "{v['evidence']}"<br>
+                    &nbsp;&nbsp;&nbsp;Policy: {v['policy']}<br>
+                    """, unsafe_allow_html=True)
+            
+            st.markdown(f"""
+                <br><strong>AI Recommendation:</strong> {post.get('recommended_action', 'review').upper()}<br>
+                ⏱️ Time saved: {post['time_saved']} min
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                if st.button("✅ Accept AI", key=f"accept_{post['post_id']}"):
+                    st.success(f"Accepted: {post.get('recommended_action', 'review')}")
+            with col_b:
+                if st.button("✏️ Manual Edit", key=f"manual_{post['post_id']}"):
+                    st.info("Opening editor...")
+            with col_c:
+                if st.button("🔄 Override", key=f"override_{post['post_id']}"):
+                    st.warning("Marked for different action")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+    else:
+        st.success("No flagged posts in selected date range")
 
-else:
-    st.info("👆 Click 'Analyze Sample Posts' to see AI moderation in action")
-    
-    with st.expander("📖 How This Works"):
-        st.markdown("""
-        ### AI Moderation Process:
-        
-        1. **Post Submission** - User posts content to eBay community
-        2. **AI Analysis** - System checks against complete policy ruleset
-        3. **Violation Detection** - Identifies naming, PII, disrespect, spam, etc.
-        4. **Auto-Sorting** - Clean posts → Assured | Violations → Flagged
-        5. **Moderator Review** - Focus time on flagged posts only
-        6. **Action Execution** - Accept AI suggestion or override
-        
-        ### Time Savings:
-        - **Old Process:** Review all 100 posts = 200 minutes
-        - **AI Process:** Review 35 flagged posts = 18 minutes
-        - **Savings:** 91% reduction in moderation time
-        
-        ### Policy Coverage:
-        ✅ Naming and Shaming  
-        ✅ Personal Information (PII)  
-        ✅ Disrespectful Language  
-        ✅ Wrong Board Placement  
-        ✅ Spam & Advertising  
-        ✅ Duplicate Content  
-        ✅ Discussion of Moderation  
-        ✅ Policy Breaches  
-        ✅ Other Violations  
-        """)
+# ================================
+# ANALYTICS DASHBOARD
+# ================================
 
-# Footer
 st.markdown("---")
-st.caption("eBay Community AI Moderation Dashboard v2.0 | Policy-Based Analysis Engine")
+st.header("📊 Analytics Dashboard")
+
+# Create tabs for different analytics views
+tab1, tab2, tab3 = st.tabs(["Overview", "Violation Breakdown", "Time Trends"])
+
+with tab1:
+    st.subheader("Overview Statistics")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Post Distribution by Source**")
+        source_data = {
+            "AI Approved": len(ai_approved),
+            "User Reported": len(user_reported),
+            "AI Flagged": len(ai_flagged)
+        }
+        st.bar_chart(source_data)
+    
+    with col2:
+        st.markdown("**Priority Distribution (Flagged Posts)**")
+        if ai_flagged:
+            priority_data = {}
+            for post in ai_flagged:
+                p = post.get('priority', 'low').title()
+                priority_data[p] = priority_data.get(p, 0) + 1
+            st.bar_chart(priority_data)
+        else:
+            st.info("No flagged posts to analyze")
+
+with tab2:
+    st.subheader("Violation Type Breakdown")
+    
+    violation_counts = {}
+    for post in ai_flagged:
+        for v in post.get('violations', []):
+            v_type = v['type']
+            violation_counts[v_type] = violation_counts.get(v_type, 0) + 1
+    
+    if violation_counts:
+        st.bar_chart(violation_counts)
+        
+        st.markdown("**Detailed Breakdown:**")
+        for v_type, count in sorted(violation_counts.items(), key=lambda x: x[1], reverse=True):
+            st.markdown(f"- **{v_type}**: {count} occurrences")
+    else:
+        st.info("No violations detected in selected period")
+
+with tab3:
+    st.subheader("Time-Based Trends")
+    
+    if filtered_posts:
+        # Group by date
+        df = pd.DataFrame([{
+            'date': p['timestamp'].date(),
+            'source': p['source']
+        } for p in filtered_posts])
+        
+        pivot = df.groupby(['date', 'source']).size().unstack(fill_value=0)
+        st.line_chart(pivot)
+    else:
+        st.info("No data for selected period")
+
+# ================================
+# FOOTER
+# ================================
+
+st.markdown("---")
+st.caption("eBay Community AI Moderation Dashboard v3.0 | Ultra-Strict Policy Engine | Multi-Stream Monitoring")
