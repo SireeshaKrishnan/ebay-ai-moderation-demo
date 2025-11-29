@@ -514,22 +514,44 @@ with st.sidebar:
     period_stats = get_stats_for_period(start_date, end_date)
     
     st.markdown("---")
-    st.metric("Total Actions", period_stats['total_actions'])
-    st.metric("Total Violations", period_stats['total_violations'])
+    st.subheader("📈 Period Summary")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Total Actions", period_stats['total_actions'])
+    with col2:
+        st.metric("Total Violations", period_stats['total_violations'])
     
     st.markdown("---")
-    st.markdown("### 🔧 Actions")
-    st.markdown(f"Analyzed: **{period_stats['analyzed']}**")
-    st.markdown(f"Edited: **{period_stats['edited']}**")
-    st.markdown(f"Removed: **{period_stats['removed']}**")
-    st.markdown(f"Approved: **{period_stats['approved']}**")
+    st.subheader("🔧 Actions Taken")
+    
+    # Show all action types with counts
+    st.markdown(f"✅ **Approved:** {period_stats['approved']}")
+    st.markdown(f"✏️ **Edited:** {period_stats['edited']}")
+    st.markdown(f"🗑️ **Removed:** {period_stats['removed']}")
+    st.markdown(f"📦 **Moved:** {period_stats['moved']}")
+    st.markdown(f"🔄 **Overridden:** {period_stats['overridden']}")
+    st.markdown(f"🚫 **Banned:** {period_stats['banned']}")
+    st.markdown(f"🤖 **Analyzed:** {period_stats['analyzed']}")
     
     st.markdown("---")
-    st.markdown("### ⚠️ Violations")
-    st.markdown(f"PII: **{period_stats['pii_violations']}**")
-    st.markdown(f"Naming: **{period_stats['naming_violations']}**")
-    st.markdown(f"Disrespect: **{period_stats['disrespect_violations']}**")
-    st.markdown(f"Spam: **{period_stats['spam_violations']}**")
+    st.subheader("⚠️ Violations by Type")
+    
+    # Show all violation types with counts
+    st.markdown(f"🚨 **PII:** {period_stats['pii_violations']}")
+    st.markdown(f"👤 **Naming & Shaming:** {period_stats['naming_violations']}")
+    st.markdown(f"😠 **Disrespect:** {period_stats['disrespect_violations']}")
+    st.markdown(f"🗂️ **Wrong Board:** {period_stats['wrong_board_violations']}")
+    st.markdown(f"📧 **Spam:** {period_stats['spam_violations']}")
+    st.markdown(f"💰 **Fee Avoidance:** {period_stats['fee_avoidance_violations']}")
+    
+    st.markdown("---")
+    st.subheader("🎯 By Severity")
+    
+    st.markdown(f"🚨 **Critical:** {period_stats['critical']}")
+    st.markdown(f"🔴 **High:** {period_stats['high']}")
+    st.markdown(f"🟠 **Medium:** {period_stats['medium']}")
+    st.markdown(f"⚪ **Low:** {period_stats['low']}")
     
     st.markdown("---")
     
