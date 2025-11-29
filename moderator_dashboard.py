@@ -2,31 +2,21 @@ import streamlit as st
 from datetime import datetime
 import time
 
-# Configure page
 st.set_page_config(page_title="eBay AI Moderation Dashboard", page_icon="🛡️", layout="wide")
 
-# Initialize Gemini AI
 try:
     import google.generativeai as genai
-    
     GEMINI_API_KEY = "AIzaSyDNe7807fBg1KgwucNZ7GVBX0g1YwCWO9Y"
     genai.configure(api_key=GEMINI_API_KEY)
     AI_ENABLED = True
 except Exception as e:
     AI_ENABLED = False
 
-# Initialize session state
 if 'stats' not in st.session_state:
     st.session_state.stats = {
-        'total_analyzed': 0,
-        'violations_found': 0,
-        'clean_posts': 0,
-        'ai_accepted': 0,
-        'human_override': 0,
-        'critical': 0,
-        'high': 0,
-        'medium': 0,
-        'low': 0
+        'total_analyzed': 0, 'violations_found': 0, 'clean_posts': 0,
+        'ai_accepted': 0, 'human_override': 0, 'critical': 0,
+        'high': 0, 'medium': 0, 'low': 0
     }
 
 if 'training_data' not in st.session_state:
@@ -35,7 +25,6 @@ if 'training_data' not in st.session_state:
 if 'forum_posts' not in st.session_state:
     st.session_state.forum_posts = {}
 
-# Custom CSS
 st.markdown("""
 <style>
     .main-header {
@@ -46,64 +35,13 @@ st.markdown("""
         margin-bottom: 30px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    
-    .pending-card {
-        background-color: #FFF9E6;
-        border-left: 5px solid #FFC107;
-        padding: 20px;
-        border-radius: 8px;
-        margin: 15px 0;
-    }
-    
-    .approved-card {
-        background-color: #D4EDDA;
-        border-left: 5px solid #28A745;
-        padding: 20px;
-        border-radius: 8px;
-        margin: 15px 0;
-    }
-    
-    .flagged-critical {
-        background-color: #F8D7DA;
-        border-left: 5px solid #DC3545;
-        padding: 20px;
-        border-radius: 8px;
-        margin: 15px 0;
-    }
-    
-    .flagged-high {
-        background-color: #FFE5E5;
-        border-left: 5px solid #FF6B6B;
-        padding: 20px;
-        border-radius: 8px;
-        margin: 15px 0;
-    }
-    
-    .flagged-medium {
-        background-color: #FFF3CD;
-        border-left: 5px solid #FFC107;
-        padding: 20px;
-        border-radius: 8px;
-        margin: 15px 0;
-    }
-    
-    .reported-card {
-        background-color: #D1ECF1;
-        border-left: 5px solid #17A2B8;
-        padding: 20px;
-        border-radius: 8px;
-        margin: 15px 0;
-    }
-    
-    .priority-badge {
-        padding: 5px 10px;
-        border-radius: 5px;
-        font-weight: bold;
-        font-size: 0.9em;
-        display: inline-block;
-        margin: 5px 0;
-    }
-    
+    .pending-card { background-color: #FFF9E6; border-left: 5px solid #FFC107; padding: 20px; border-radius: 8px; margin: 15px 0; }
+    .approved-card { background-color: #D4EDDA; border-left: 5px solid #28A745; padding: 20px; border-radius: 8px; margin: 15px 0; }
+    .flagged-critical { background-color: #F8D7DA; border-left: 5px solid #DC3545; padding: 20px; border-radius: 8px; margin: 15px 0; }
+    .flagged-high { background-color: #FFE5E5; border-left: 5px solid #FF6B6B; padding: 20px; border-radius: 8px; margin: 15px 0; }
+    .flagged-medium { background-color: #FFF3CD; border-left: 5px solid #FFC107; padding: 20px; border-radius: 8px; margin: 15px 0; }
+    .reported-card { background-color: #D1ECF1; border-left: 5px solid #17A2B8; padding: 20px; border-radius: 8px; margin: 15px 0; }
+    .priority-badge { padding: 5px 10px; border-radius: 5px; font-weight: bold; font-size: 0.9em; display: inline-block; margin: 5px 0; }
     .critical { background-color: #DC3545; color: white; }
     .high { background-color: #FF6B6B; color: white; }
     .medium { background-color: #FFC107; color: #000; }
@@ -111,7 +49,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Header
 st.markdown("""
 <div class="main-header">
     <h1>🛡️ eBay AI Moderation Dashboard</h1>
@@ -120,12 +57,9 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Sidebar
 with st.sidebar:
     st.markdown("### 📊 Today's Statistics")
-    
     stats = st.session_state.stats
-    
     col1, col2 = st.columns(2)
     with col1:
         st.metric("Posts Analyzed", stats['total_analyzed'])
@@ -152,8 +86,6 @@ with st.sidebar:
     st.markdown(f"⚪ Low: **{stats['low']}**")
     
     st.markdown("---")
-    
-    # Connection status
     pending_count = sum(1 for p in st.session_state.forum_posts.values() if p.get('status') == 'pending')
     
     if AI_ENABLED:
@@ -165,47 +97,32 @@ with st.sidebar:
     st.warning(f"⏳ Pending Review: {pending_count}")
     
     st.markdown("---")
-    
     if st.button("🔄 Refresh Now", use_container_width=True):
         st.rerun()
     
     auto_refresh = st.checkbox("🔄 Auto-Refresh (10s)", value=True)
-    
     if auto_refresh:
         time.sleep(10)
         st.rerun()
 
-# Main tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "⏳ Pending Posts", 
-    "🟢 Approved Posts", 
-    "🔴 Flagged Posts", 
-    "🔵 Reported Posts",
-    "📊 Analytics"
-])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["⏳ Pending Posts", "🟢 Approved Posts", "🔴 Flagged Posts", "🔵 Reported Posts", "📊 Analytics"])
 
-# Helper function for AI analysis
 def analyze_post_with_ai(post_content, username, board, post_title):
-    """Analyze post with Gemini AI"""
     if not AI_ENABLED:
-        # Fallback simulation
         if any(word in post_content.lower() for word in ['scam', 'fraud', 'avoid', 'terrible']):
             return {
                 'has_violations': True,
                 'violations': [{
-                    'type': 'Naming & Shaming',
-                    'severity': 'High',
+                    'type': 'Naming & Shaming', 'severity': 'High',
                     'evidence': 'Contains negative language about members',
                     'reason': 'Potential identification with negative intent',
-                    'action': 'Edit to remove identifying information',
-                    'confidence': '85%'
+                    'action': 'Edit to remove identifying information', 'confidence': '85%'
                 }]
             }
         return {'has_violations': False, 'reason': 'No policy violations detected'}
     
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
-        
         prompt = f"""You are an eBay community moderator. Analyze this post for policy violations.
 
 POST:
@@ -233,15 +150,12 @@ If violations: List each as:
 
 If clean: Say "CLEAN POST - No violations detected"
 """
-        
         response = model.generate_content(prompt)
         ai_response = response.text
         
-        # Parse response
         if "CLEAN POST" in ai_response or "No violations" in ai_response:
             return {'has_violations': False, 'reason': 'AI analysis: Complies with policy'}
         
-        # Parse violations
         violations = []
         lines = ai_response.split('\n')
         current_v = {}
@@ -266,18 +180,12 @@ If clean: Say "CLEAN POST - No violations detected"
             violations.append(current_v)
         
         return {'has_violations': True, 'violations': violations}
-        
     except Exception as e:
         return {'has_violations': False, 'error': str(e)}
 
-# Tab 1: Pending Posts (Auto-loaded from forum!)
 with tab1:
     st.markdown("### ⏳ Pending Posts - Awaiting Review")
-    
-    # Get pending posts
     pending_posts = [p for p in st.session_state.forum_posts.values() if p.get('status') == 'pending']
-    
-    # Sort by priority (reported posts first)
     pending_posts.sort(key=lambda x: (len(x.get('reports', [])), x.get('timestamp')), reverse=True)
     
     if pending_posts:
@@ -285,14 +193,10 @@ with tab1:
         
         for post in pending_posts:
             post_id = post['id']
-            
-            # Check if reported
             is_reported = len(post.get('reports', [])) > 0
             card_class = "reported-card" if is_reported else "pending-card"
             
             st.markdown(f'<div class="{card_class}">', unsafe_allow_html=True)
-            
-            # Header
             st.markdown(f"**👤 {post['username']}** • 📌 {post['board']} • 🕐 {post['timestamp']}")
             
             if is_reported:
@@ -302,32 +206,20 @@ with tab1:
             
             st.markdown(f"**Title:** {post['title']}")
             st.markdown(f"**Content:** {post['content']}")
-            
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Action buttons
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 if st.button(f"🤖 Analyze with AI", key=f"analyze_{post_id}", use_container_width=True):
                     with st.spinner("🔍 AI analyzing..."):
-                        analysis = analyze_post_with_ai(
-                            post['content'],
-                            post['username'],
-                            post['board'],
-                            post['title']
-                        )
-                        
-                        # Update stats
+                        analysis = analyze_post_with_ai(post['content'], post['username'], post['board'], post['title'])
                         st.session_state.stats['total_analyzed'] += 1
                         
                         if analysis.get('has_violations'):
                             st.session_state.stats['violations_found'] += 1
-                            
-                            # Show violations
                             for v in analysis['violations']:
                                 severity = v.get('severity', 'Medium')
-                                
                                 if 'Critical' in severity:
                                     st.session_state.stats['critical'] += 1
                                     st.error(f"🚨 {v['type']} - {severity}")
@@ -337,21 +229,16 @@ with tab1:
                                 else:
                                     st.session_state.stats['medium'] += 1
                                     st.info(f"ℹ️ {v['type']} - {severity}")
-                                
                                 st.markdown(f"**Evidence:** {v.get('evidence', 'N/A')}")
                                 st.markdown(f"**Action:** {v.get('action', 'Review needed')}")
                             
-                            # Update post status
                             storage_key = f"forum_post_{post_id}"
                             st.session_state.forum_posts[storage_key]['status'] = 'flagged'
                             st.session_state.forum_posts[storage_key]['ai_analysis'] = analysis
-                            
                             st.success("Post moved to Flagged section!")
-                            
                         else:
                             st.session_state.stats['clean_posts'] += 1
                             st.success("✅ No violations detected!")
-                        
                         st.rerun()
             
             with col2:
@@ -369,18 +256,14 @@ with tab1:
                     st.session_state.stats['violations_found'] += 1
                     st.warning("🚫 Post flagged!")
                     st.rerun()
-            
             st.markdown("---")
     else:
         st.success("✅ No pending posts! All caught up!")
         st.info("💡 Posts from the forum will appear here automatically. Try posting in the forum app!")
 
-# Tab 2: Approved Posts
 with tab2:
     st.markdown("### 🟢 Approved Posts")
-    
     approved_posts = [p for p in st.session_state.forum_posts.values() if p.get('status') == 'approved']
-    
     if approved_posts:
         for post in sorted(approved_posts, key=lambda x: x['timestamp'], reverse=True):
             st.markdown('<div class="approved-card">', unsafe_allow_html=True)
@@ -391,110 +274,36 @@ with tab2:
     else:
         st.info("No approved posts yet.")
 
-# Tab 3: Flagged Posts
 with tab3:
     st.markdown("### 🔴 Flagged Posts")
-    
     flagged_posts = [p for p in st.session_state.forum_posts.values() if p.get('status') == 'flagged']
-    
     if flagged_posts:
         for post in sorted(flagged_posts, key=lambda x: x['timestamp'], reverse=True):
             st.markdown('<div class="flagged-critical">', unsafe_allow_html=True)
             st.markdown(f"**👤 {post['username']}** • 📌 {post['board']} • 🕐 {post['timestamp']}")
             st.markdown(f"**Title:** {post['title']}")
             st.markdown(f"**Content:** {post['content'][:200]}...")
-            
             if post.get('ai_analysis'):
                 analysis = post['ai_analysis']
                 if analysis.get('violations'):
                     st.markdown("**Violations:**")
                     for v in analysis['violations']:
                         st.markdown(f"- {v.get('type')}: {v.get('severity')}")
-            
             st.markdown('</div>', unsafe_allow_html=True)
     else:
         st.info("No flagged posts.")
 
-# Tab 4: Reported Posts
 with tab4:
     st.markdown("### 🔵 User-Reported Posts")
-    
     reported_posts = [p for p in st.session_state.forum_posts.values() if len(p.get('reports', [])) > 0]
-    
     if reported_posts:
         for post in sorted(reported_posts, key=lambda x: len(x.get('reports', [])), reverse=True):
             st.markdown('<div class="reported-card">', unsafe_allow_html=True)
             st.markdown(f"**👤 {post['username']}** • 📌 {post['board']} • 🕐 {post['timestamp']}")
             st.markdown(f"**🚩 {len(post['reports'])} Report(s)**")
-            
             for report in post['reports']:
                 st.markdown(f"- **{report['reporter']}**: {report['reason']}")
                 if report.get('additional_info'):
                     st.markdown(f"  *{report['additional_info']}*")
-            
             st.markdown(f"**Content:** {post['content'][:200]}...")
-            st.markdown('</div>', unsafe_allow_html=True)
-    else:
-        st.info("No reported posts.")
-
-# Tab 5: Analytics
-with tab5:
-    st.markdown("### 📊 Analytics & Performance")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric("Total Posts", len(st.session_state.forum_posts))
-        st.metric("Pending", sum(1 for p in st.session_state.forum_posts.values() if p.get('status') == 'pending'))
-    
-    with col2:
-        st.metric("Approved", sum(1 for p in st.session_state.forum_posts.values() if p.get('status') == 'approved'))
-        st.metric("Flagged", sum(1 for p in st.session_state.forum_posts.values() if p.get('status') == 'flagged'))
-    
-    with col3:
-        st.metric("Reported", sum(1 for p in st.session_state.forum_posts.values() if len(p.get('reports', [])) > 0))
-        st.metric("Posts Analyzed", stats['total_analyzed'])
-
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #707070; padding: 20px;'>
-    <p>🤖 Real-time AI Moderation • Live Forum Connection • Saving $3.1M+ Annually</p>
-</div>
-""", unsafe_allow_html=True)
-```
-
----
-
-## 💾 SAVE, COMMIT, PUSH
-
-**In github.dev:**
-
-1. **Save:** `Ctrl+S`
-2. **Source Control:** Click icon
-3. **Message:** `Added real-time integration to moderator dashboard`
-4. **Commit:** Click ✓
-5. **Stage:** Click "Yes"
-6. **Sync:** Click sync button
-
----
-
-## ⏳ WAIT FOR DEPLOYMENT (30-60 seconds)
-
-**Both apps will rebuild automatically!**
-
----
-
-## 🎉 THEN TEST IT!
-
-### **How to Test:**
-
-1. **Open Forum App** in one browser tab
-2. **Open Moderator Dashboard** in another tab
-
-3. **In Forum:** Post something like:
-```
-   Username: test_user
-   Board: Selling
-   Title: Test Post
-   Content: That seller ABC123 is a total scammer! Avoid them!
+            st.markdown('</div>'
