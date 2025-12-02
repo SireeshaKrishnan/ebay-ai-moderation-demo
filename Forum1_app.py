@@ -1,39 +1,25 @@
 import streamlit as st
 from datetime import datetime
 import json
-import hashlib
 
 st.set_page_config(page_title="eBay Community - Test Board", page_icon="💬", layout="wide")
 
 # ================================
-# SHARED STORAGE KEYS
+# SESSION STATE INITIALIZATION - Fix the AttributeError
 # ================================
 
-def get_storage_key():
-    """Get a consistent storage key across both apps"""
-    # Use a fixed key that both apps can access
-    return "ebay_forum_posts_v1"
+# Initialize ALL session state variables first
+if 'forum_posts' not in st.session_state:
+    st.session_state.forum_posts = {}
 
-def save_posts_to_storage(posts_dict):
-    """Save posts to session state with a special marker"""
-    # Store in a way that can be accessed across refreshes
-    storage_key = get_storage_key()
-    st.session_state[storage_key] = posts_dict
-    
-    # Also store in a separate "sync" key
-    st.session_state['posts_sync_timestamp'] = datetime.now().timestamp()
+if 'last_load_time' not in st.session_state:
+    st.session_state.last_load_time = None
 
-def load_posts_from_storage():
-    """Load posts from session state"""
-    storage_key = get_storage_key()
-    return st.session_state.get(storage_key, {})
-
-# Initialize storage
 if 'ebay_forum_posts_v1' not in st.session_state:
     st.session_state['ebay_forum_posts_v1'] = {}
 
-if 'forum_posts' not in st.session_state:
-    st.session_state.forum_posts = st.session_state['ebay_forum_posts_v1']
+if 'posts_sync_timestamp' not in st.session_state:
+    st.session_state['posts_sync_timestamp'] = datetime.now().timestamp()
 
 # Custom CSS
 st.markdown("""
@@ -111,7 +97,7 @@ window.savePost = async function(postId, postData) {
     try {
         if (window.storage) {
             await window.storage.set('forum_post_' + postId, JSON.stringify(postData), true);
-            console.log('Post saved:', postId);
+            console.log('Post saved to shared storage:', postId);
             return true;
         }
         console.error('Storage API not available');
@@ -136,7 +122,7 @@ window.loadAllPosts = async function() {
                     }
                 }
             }
-            console.log('Loaded posts:', Object.keys(posts).length);
+            console.log('Loaded posts from shared storage:', Object.keys(posts).length);
             return posts;
         }
         return {};
@@ -157,6 +143,7 @@ window.updatePostReport = async function(postId, reportData) {
                 post.reports.push(reportData);
                 post.report_count = post.reports.length;
                 await window.storage.set(key, JSON.stringify(post), true);
+                console.log('Report added to post:', postId);
                 return true;
             }
         }
@@ -191,17 +178,6 @@ REPORT_REASONS = [
     "Naming & Shaming", "Disrespectful Language", "Personal Information Shared",
     "Spam or Advertising", "Off-Topic Content", "Wrong Board", "Other Policy Violation"
 ]
-
-# Initialize session state for local display
-if 'forum_posts' not in st.session_state:
-    st.session_state.forum_posts = {}
-    st.session_state.last_load_time = None
-
-# Load posts from shared storage on page load
-if st.session_state.last_load_time is None or \
-   (datetime.now() - st.session_state.last_load_time).seconds > 5:
-    # Simulate loading from storage (in production, would call window.loadPosts())
-    st.session_state.last_load_time = datetime.now()
 
 # Post submission form
 st.markdown("---")
@@ -246,12 +222,10 @@ with st.form("new_post_form"):
                 "ai_analyzed": False
             }
             
-            # Save to BOTH session state AND shared storage
+            # Save to session state
             storage_key = f"forum_post_{post_id}"
             st.session_state.forum_posts[storage_key] = post_data
             st.session_state['ebay_forum_posts_v1'][storage_key] = post_data
-            
-            # Update sync timestamp
             st.session_state['posts_sync_timestamp'] = datetime.now().timestamp()
             
             st.success(f"✅ Post submitted to **{board}** board!")
@@ -373,7 +347,7 @@ if st.session_state.forum_posts:
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         }
                         
-                        # Add report to post in BOTH storage locations
+                        # Add report to post
                         storage_key = f"forum_post_{post['id']}"
                         if storage_key in st.session_state.forum_posts:
                             st.session_state.forum_posts[storage_key]['reports'].append(report_data)
