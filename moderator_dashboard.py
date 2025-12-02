@@ -101,6 +101,81 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ================================
+# STORAGE LOADER - Sync with Forum App
+# ================================
+
+def load_posts_from_storage():
+    """Load posts from shared storage (written by Forum app)"""
+    try:
+        # Get all forum posts from shared storage
+        result = st.components.v1.html("""
+        <script>
+        async function loadAllPosts() {
+            try {
+                if (window.storage) {
+                    const keys = await window.storage.list('forum_post_', true);
+                    const posts = {};
+                    
+                    if (keys && keys.keys) {
+                        for (const key of keys.keys) {
+                            try {
+                                const result = await window.storage.get(key, true);
+                                if (result && result.value) {
+                                    posts[key] = JSON.parse(result.value);
+                                }
+                            } catch (e) {
+                                console.error('Error loading ' + key + ':', e);
+                            }
+                        }
+                    }
+                    
+                    // Send posts back to Streamlit
+                    window.parent.postMessage({
+                        type: 'streamlit:setComponentValue',
+                        value: posts
+                    }, '*');
+                    
+                    return posts;
+                } else {
+                    console.log('Storage API not available yet');
+                    return {};
+                }
+            } catch (error) {
+                console.error('Error in loadAllPosts:', error);
+                return {};
+            }
+        }
+        
+        // Run immediately
+        loadAllPosts();
+        </script>
+        """, height=0)
+        
+        if result:
+            return result
+        return {}
+    except Exception as e:
+        st.error(f"Error loading posts: {e}")
+        return {}
+
+async def save_post_to_storage(post_id, post_data):
+    """Save updated post back to shared storage"""
+    try:
+        st.components.v1.html(f"""
+        <script>
+        async function savePost() {{
+            if (window.storage) {{
+                await window.storage.set('forum_post_{post_id}', JSON.stringify({json.dumps(post_data)}), true);
+                console.log('Post updated: {post_id}');
+            }}
+        }}
+        savePost();
+        </script>
+        """, height=0)
+    except Exception as e:
+        st.error(f"Error saving post: {e}")
+
+# ================================
 # STATS STORAGE
 # ================================
 
@@ -156,13 +231,7 @@ def log_violation(post_id, username, violation_type, severity, confidence, evide
     return violation_entry
 
 def log_custom_violation(post_id, username, violation_description, severity, evidence):
-    """
-    Log a custom "Other" violation with description
-    Use this for violations that don't fit standard categories
-    
-    Example:
-    log_custom_violation("P123", "user123", "Posted in wrong language", "medium", "Post was in German")
-    """
+    """Log a custom "Other" violation with description"""
     violation_type = f"Other - {violation_description}"
     
     violation_entry = {
@@ -172,7 +241,7 @@ def log_custom_violation(post_id, username, violation_description, severity, evi
         'username': username,
         'violation_type': violation_type,
         'severity': severity,
-        'confidence': 100,  # Manual violations are 100% confidence
+        'confidence': 100,
         'evidence': evidence,
         'is_custom': True
     }
@@ -195,7 +264,7 @@ def update_user_profile(username, event_type, event_data):
             'actions': [],
             'violation_types': {},
             'severity_counts': {'critical': 0, 'high': 0, 'medium': 0, 'low': 0},
-            'status': 'clean'  # clean, warning, flagged, banned
+            'status': 'clean'
         }
     
     profile = st.session_state.user_profiles[username]
@@ -207,15 +276,12 @@ def update_user_profile(username, event_type, event_data):
         profile['total_violations'] += 1
         profile['violations'].append(event_data)
         
-        # Track violation types
         v_type = event_data['violation_type']
         profile['violation_types'][v_type] = profile['violation_types'].get(v_type, 0) + 1
         
-        # Track severity
         severity = event_data['severity']
         profile['severity_counts'][severity] = profile['severity_counts'].get(severity, 0) + 1
         
-        # Update status based on violations
         if profile['severity_counts']['critical'] > 0 or profile['total_violations'] >= 5:
             profile['status'] = 'flagged'
         elif profile['total_violations'] >= 2:
@@ -256,7 +322,7 @@ def get_stats_for_period(start_date, end_date):
         'total_actions': len(actions_in_period),
         'total_violations': len(violations_in_period),
         
-        # Action breakdown - ALL possible moderation actions
+        # Action breakdown
         'analyzed': len([a for a in actions_in_period if a['action_type'] == 'analyzed']),
         'edited': len([a for a in actions_in_period if a['action_type'] == 'edited']),
         'removed': len([a for a in actions_in_period if a['action_type'] == 'removed']),
@@ -269,7 +335,7 @@ def get_stats_for_period(start_date, end_date):
         'banned': len([a for a in actions_in_period if a['action_type'] == 'banned']),
         'warned': len([a for a in actions_in_period if a['action_type'] == 'warned']),
         
-        # Violation breakdown - ALL eBay policy violations
+        # Violation breakdown
         'pii_violations': len([v for v in violations_in_period if 'PII' in v['violation_type']]),
         'naming_violations': len([v for v in violations_in_period if 'Naming' in v['violation_type']]),
         'disrespect_violations': len([v for v in violations_in_period if 'Disrespect' in v['violation_type']]),
@@ -421,7 +487,7 @@ def analyze_post_ultra_strict(content, post_id, board, username):
     return result
 
 # ================================
-# SESSION STATE
+# SESSION STATE INITIALIZATION
 # ================================
 
 init_stats_storage()
@@ -432,8 +498,17 @@ if 'forum_posts' not in st.session_state:
 if 'viewing_user_profile' not in st.session_state:
     st.session_state.viewing_user_profile = None
 
+if 'last_sync_time' not in st.session_state:
+    st.session_state.last_sync_time = None
+
+# Load posts from shared storage on page load/refresh
+loaded_posts = load_posts_from_storage()
+if loaded_posts:
+    st.session_state.forum_posts = loaded_posts
+    st.session_state.last_sync_time = datetime.now()
+
 # ================================
-# USER PROFILE MODAL
+# USER PROFILE VIEW
 # ================================
 
 def show_user_profile(username):
@@ -466,14 +541,12 @@ def show_user_profile(username):
     if profile['violations']:
         st.warning(f"This user has {len(profile['violations'])} violation(s) on record")
         
-        # Group by violation type
         st.markdown("### By Type:")
         for v_type, count in profile['violation_types'].items():
             st.markdown(f"**{v_type}:** {count} occurrence(s)")
         
         st.markdown("---")
         
-        # Detailed violations
         st.markdown("### Detailed Violations:")
         for i, v in enumerate(reversed(profile['violations'][-10:]), 1):
             severity_emoji = {"critical": "🚨", "high": "🔴", "medium": "🟠", "low": "⚪"}
@@ -506,16 +579,26 @@ def show_user_profile(username):
         st.rerun()
 
 # ================================
-# HEADER
+# MAIN DASHBOARD
 # ================================
 
 st.title("🛡️ eBay Community AI Moderation Dashboard")
-st.markdown("**Ultra-Strict Policy Engine | Complete Stats Tracking | User Profiles**")
-st.success("✨ All actions and violations permanently stored | Click usernames to view profiles")
+st.markdown("**Ultra-Strict Policy Engine | Real-Time Sync | Complete Stats Tracking**")
+st.success(f"✨ Connected to Forum App | Last sync: {st.session_state.last_sync_time.strftime('%H:%M:%S') if st.session_state.last_sync_time else 'Never'}")
 st.markdown("---")
 
+# Auto-refresh button
+col_refresh1, col_refresh2 = st.columns([5, 1])
+with col_refresh2:
+    if st.button("🔄 Sync Now", use_container_width=True):
+        loaded_posts = load_posts_from_storage()
+        if loaded_posts:
+            st.session_state.forum_posts = loaded_posts
+            st.session_state.last_sync_time = datetime.now()
+        st.rerun()
+
 # ================================
-# SIDEBAR
+# SIDEBAR STATS
 # ================================
 
 with st.sidebar:
@@ -565,7 +648,6 @@ with st.sidebar:
     st.subheader("🔧 Actions Taken")
     st.caption("All moderation actions in selected period")
     
-    # Show all action types with counts
     st.markdown(f"🤖 **Analyzed:** {period_stats['analyzed']}")
     st.markdown(f"✅ **Approved/NAR:** {period_stats['no_action_required']}")
     st.markdown(f"✏️ **Edited:** {period_stats['edited']}")
@@ -579,9 +661,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.subheader("⚠️ Violations Detected")
-    st.caption("Policy violations found in period")
     
-    # Show all violation types with counts - Complete eBay policy list
     st.markdown(f"🚨 **PII (Personal Info):** {period_stats['pii_violations']}")
     st.markdown(f"👤 **Naming & Shaming:** {period_stats['naming_violations']}")
     st.markdown(f"😠 **Disrespect:** {period_stats['disrespect_violations']}")
@@ -598,40 +678,21 @@ with st.sidebar:
     
     st.markdown("---")
     st.subheader("🎯 By Severity")
-    st.caption("Violation severity breakdown")
     
     st.markdown(f"🚨 **Critical:** {period_stats['critical']}")
     st.markdown(f"🔴 **High:** {period_stats['high']}")
     st.markdown(f"🟠 **Medium:** {period_stats['medium']}")
     st.markdown(f"⚪ **Low:** {period_stats['low']}")
-    
-    st.markdown("---")
-    
-    with st.expander("💾 Storage Info"):
-        st.markdown(f"""
-        **Records:**  
-        Actions: {len(st.session_state.action_log)}  
-        Violations: {len(st.session_state.violation_log)}  
-        Users Tracked: {len(st.session_state.user_profiles)}
-        
-        **Location:**  
-        `st.session_state.action_log`  
-        `st.session_state.violation_log`  
-        `st.session_state.user_profiles`
-        """)
 
 # ================================
-# MAIN VIEW - USER PROFILE OR DASHBOARD
+# MAIN VIEW
 # ================================
 
 if st.session_state.viewing_user_profile:
     show_user_profile(st.session_state.viewing_user_profile)
 
 else:
-    # ================================
-    # STATS DISPLAY
-    # ================================
-    
+    # Stats Display
     all_posts = list(st.session_state.forum_posts.values())
     ai_approved = [p for p in all_posts if p.get('ai_analyzed') and p.get('overall_status') == 'assured']
     user_reported = [p for p in all_posts if len(p.get('reports', [])) > 0]
@@ -645,10 +706,7 @@ else:
     
     st.markdown("---")
     
-    # ================================
-    # THREE COLUMNS
-    # ================================
-    
+    # Three Column Layout
     col_approved, col_reported, col_flagged = st.columns(3)
     
     with col_approved:
@@ -743,58 +801,12 @@ else:
                     if st.button("👤", key=f"profile_f_{post['id']}"):
                         st.session_state.viewing_user_profile = post['username']
                         st.rerun()
-                
-                # Add custom "Other" violation button
-                if st.button("➕ Add Other Violation", key=f"other_v_{post['id']}", use_container_width=True):
-                    st.session_state[f'show_other_form_{post["id"]}'] = True
-                
-                # Show custom violation form
-                if st.session_state.get(f'show_other_form_{post["id"]}', False):
-                    with st.form(f"other_violation_form_{post['id']}"):
-                        st.markdown("**Add Custom Violation**")
-                        custom_desc = st.text_input(
-                            "Violation Description",
-                            placeholder="e.g., Posted in wrong language, Inappropriate image, etc.",
-                            key=f"custom_desc_{post['id']}"
-                        )
-                        custom_severity = st.selectbox(
-                            "Severity",
-                            ["low", "medium", "high", "critical"],
-                            key=f"custom_sev_{post['id']}"
-                        )
-                        custom_evidence = st.text_area(
-                            "Evidence/Details",
-                            placeholder="Describe what the violation was...",
-                            key=f"custom_ev_{post['id']}"
-                        )
-                        
-                        col_submit, col_cancel = st.columns(2)
-                        with col_submit:
-                            submitted = st.form_submit_button("✅ Add Violation", use_container_width=True)
-                        with col_cancel:
-                            cancelled = st.form_submit_button("❌ Cancel", use_container_width=True)
-                        
-                        if submitted and custom_desc:
-                            log_custom_violation(
-                                post['id'],
-                                post['username'],
-                                custom_desc,
-                                custom_severity,
-                                custom_evidence
-                            )
-                            st.session_state[f'show_other_form_{post["id"]}'] = False
-                            st.success(f"✅ Custom violation '{custom_desc}' logged!")
-                            st.rerun()
-                        
-                        if cancelled:
-                            st.session_state[f'show_other_form_{post["id"]}'] = False
-                            st.rerun()
         else:
             st.success("No flags")
     
     st.markdown("---")
     
-    # Pending posts
+    # Pending Analysis
     st.header("⏳ Pending Analysis")
     
     pending = [p for p in all_posts if not p.get('ai_analyzed')]
@@ -828,4 +840,4 @@ else:
         st.success("✅ All posts analyzed!")
 
 st.markdown("---")
-st.caption("eBay AI Moderation Dashboard v4.0 | User Profiles | Complete Stats Tracking")
+st.caption("eBay AI Moderation Dashboard v5.0 | Real-Time Sync with Forum App | Complete Stats Tracking")
