@@ -269,59 +269,13 @@ with st.form("new_post_form"):
             st.session_state['ebay_forum_posts_v1'][storage_key] = post_data
             st.session_state['posts_sync_timestamp'] = datetime.now().timestamp()
             
-            # CRITICAL: Save to shared storage for React dashboard - WITH RETRY
-            save_result = st.components.v1.html(f"""
-            <script>
-            async function saveWithRetry() {{
-                let attempts = 0;
-                const maxAttempts = 3;
-                
-                while (attempts < maxAttempts) {{
-                    try {{
-                        if (window.storage) {{
-                            const postData = {json.dumps(post_data)};
-                            await window.storage.set('forum_post_{post_id}', JSON.stringify(postData), true);
-                            console.log('✅ Post saved to storage:', 'forum_post_{post_id}');
-                            
-                            // Verify save
-                            const verify = await window.storage.get('forum_post_{post_id}', true);
-                            if (verify && verify.value) {{
-                                console.log('✅ Save verified!');
-                                
-                                // Return success to Streamlit
-                                window.parent.postMessage({{
-                                    type: 'streamlit:setComponentValue',
-                                    value: {{success: true, postId: '{post_id}'}}
-                                }}, '*');
-                                
-                                return true;
-                            }}
-                        }} else {{
-                            console.warn('Storage API not available, attempt', attempts + 1);
-                        }}
-                    }} catch (e) {{
-                        console.error('Save attempt', attempts + 1, 'failed:', e);
-                    }}
-                    attempts++;
-                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms between attempts
-                }}
-                
-                console.error('❌ Failed to save post after', maxAttempts, 'attempts');
-                window.parent.postMessage({{
-                    type: 'streamlit:setComponentValue',
-                    value: {{success: false, postId: '{post_id}'}}
-                }}, '*');
-                return false;
-            }}
-            saveWithRetry();
-            </script>
-            """, height=0, key=f"save_{post_id}")
+            # CRITICAL: Save to shared storage for React dashboard
+            # Store the post_id in session state for the save component
+            st.session_state['pending_save_post_id'] = post_id
+            st.session_state['pending_save_data'] = post_data
             
-            if save_result and isinstance(save_result, dict) and save_result.get('success'):
-                st.success(f"✅ Post submitted to **{board}** board and saved to storage!")
-                st.info("🤖 **Your post is now syncing to the Moderator Dashboard!** Open the React dashboard to see it.")
-            else:
-                st.warning(f"⚠️ Post submitted to **{board}** board but storage save may have failed. Check the React dashboard.")
+            st.success(f"✅ Post submitted to **{board}** board!")
+            st.info("🤖 **Your post is now syncing to the Moderator Dashboard!** Open the React dashboard to see it.")
             
             st.balloons()
             
@@ -342,6 +296,34 @@ with st.form("new_post_form"):
 
 # Display recent posts
 st.markdown("---")
+
+# Handle pending post save (if any)
+if 'pending_save_post_id' in st.session_state and 'pending_save_data' in st.session_state:
+    post_id_to_save = st.session_state['pending_save_post_id']
+    data_to_save = st.session_state['pending_save_data']
+    
+    # Save to storage
+    st.components.v1.html(f"""
+    <script>
+    async function savePendingPost() {{
+        try {{
+            if (window.storage) {{
+                const postData = {json.dumps(data_to_save)};
+                await window.storage.set('forum_post_{post_id_to_save}', JSON.stringify(postData), true);
+                console.log('✅ Post saved to storage:', 'forum_post_{post_id_to_save}');
+            }}
+        }} catch (e) {{
+            console.error('Save error:', e);
+        }}
+    }}
+    savePendingPost();
+    </script>
+    """, height=0)
+    
+    # Clear the pending save
+    del st.session_state['pending_save_post_id']
+    del st.session_state['pending_save_data']
+
 st.markdown("### 📋 Recent Posts Across All Boards")
 
 # Filter options
