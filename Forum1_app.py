@@ -5,10 +5,9 @@ import json
 st.set_page_config(page_title="eBay Community - Test Board", page_icon="💬", layout="wide")
 
 # ================================
-# SESSION STATE INITIALIZATION - Fix the AttributeError
+# SESSION STATE INITIALIZATION
 # ================================
 
-# Initialize ALL session state variables first
 if 'forum_posts' not in st.session_state:
     st.session_state.forum_posts = {}
 
@@ -367,35 +366,6 @@ if st.session_state.forum_posts:
         st.markdown("---")
 else:
     st.info("📭 No posts yet. Be the first to post!")
-    
-    with st.expander("💡 Test Scenarios to Try"):
-        st.markdown("""
-        **Try posting these to test AI moderation:**
-        
-        1. **PII Violation:**
-           - "Call me at 020-5555-1234 for details"
-           - "Email me at test@example.com"
-        
-        2. **Naming & Shaming:**
-           - "Seller abc123 is a total scammer!"
-           - "Avoid buyer xyz789, terrible!"
-        
-        3. **Disrespect:**
-           - "You're all idiots if you think that!"
-           - "This is f*cking ridiculous!"
-        
-        4. **Wrong Board:**
-           - Post "My app is crashing" in Selling board
-           - Post "How to ship items?" in Payments board
-        
-        5. **Spam:**
-           - "Better deals on Amazon.com!"
-           - "Skip eBay fees by contacting me directly"
-        
-        6. **Clean Post:**
-           - "What's the best way to price vintage items?"
-           - "How do I handle international shipping?"
-        """)
 
 # Auto-refresh option
 st.markdown("---")
