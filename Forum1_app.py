@@ -95,40 +95,47 @@ st.markdown('<div class="main-header"><h1>🛒 eBay Community - Forums</h1></div
 st.markdown("### 💬 Welcome to the eBay Community Test Board")
 st.success("✨ **LIVE CONNECTION:** Posts automatically sync to Moderator Dashboard in real-time!")
 
-# CRITICAL: Storage sync component - runs on every page load
-# This component saves all unsaved posts and loads existing posts
-if st.session_state.unsaved_posts:
-    posts_to_save = st.session_state.unsaved_posts.copy()
-    posts_json = json.dumps(posts_to_save)
+# CRITICAL: Storage sync component - ALWAYS runs on every page load
+# This component saves all unsaved posts
+posts_to_save = st.session_state.unsaved_posts.copy()
+posts_json = json.dumps(posts_to_save)
+
+st.components.v1.html(f"""
+<script>
+async function syncPosts() {{
+    const postsToSave = {posts_json};
     
-    st.components.v1.html(f"""
-    <script>
-    async function syncPosts() {{
-        const postsToSave = {posts_json};
-        let savedCount = 0;
-        
-        if (window.storage) {{
-            for (const post of postsToSave) {{
-                try {{
-                    await window.storage.set('forum_post_' + post.id, JSON.stringify(post), true);
-                    console.log('✅ Saved post:', post.id);
-                    savedCount++;
-                }} catch (e) {{
-                    console.error('Failed to save post', post.id, e);
-                }}
-            }}
-            console.log('📤 Saved', savedCount, 'posts to storage');
-        }} else {{
-            console.error('Storage API not available!');
-        }}
+    if (postsToSave.length === 0) {{
+        console.log('No posts to sync');
+        return;
     }}
-    syncPosts();
-    </script>
-    """, height=0, key="storage_sync")
     
+    let savedCount = 0;
+    
+    if (window.storage) {{
+        for (const post of postsToSave) {{
+            try {{
+                await window.storage.set('forum_post_' + post.id, JSON.stringify(post), true);
+                console.log('✅ Saved post:', post.id);
+                savedCount++;
+            }} catch (e) {{
+                console.error('Failed to save post', post.id, e);
+            }}
+        }}
+        console.log('📤 Saved', savedCount, 'posts to storage');
+    }} else {{
+        console.error('Storage API not available!');
+    }}
+}}
+syncPosts();
+</script>
+""", height=0, key="storage_sync")
+
+# Show sync status and clear unsaved posts
+if len(posts_to_save) > 0:
+    st.info(f"💾 Syncing {len(posts_to_save)} post(s) to storage...")
     # Clear unsaved posts after attempting to save
     st.session_state.unsaved_posts = []
-    st.info(f"💾 Syncing {len(posts_to_save)} post(s) to storage...")
 
 # Manual load button
 if st.button("📥 Load All Posts from Storage", use_container_width=True, type="primary"):
