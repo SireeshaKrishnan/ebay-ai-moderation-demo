@@ -494,14 +494,16 @@ st.markdown("**Ultra-Strict Policy Engine | Real-Time Auto-Classification | Comp
 # Sync status with auto-analyze indicator
 if st.session_state.forum_posts:
     analyzed_count = len([p for p in st.session_state.forum_posts.values() if p.get('ai_analyzed')])
-    st.success(f"✨ LIVE: {len(st.session_state.forum_posts)} posts loaded | {analyzed_count} analyzed | Auto-classification active")
+    total_count = len(st.session_state.forum_posts)
+    st.success(f"✨ LIVE MODERATION: {total_count} posts loaded | {analyzed_count} analyzed | Auto-classification active")
 else:
-    st.info("📡 Waiting for posts from Forum App | Click 'Load Demo Data' to test")
+    st.warning("📡 No posts in queue | Waiting for new posts from Forum App")
+    st.info("👉 **To test:** Open the Forum App in another tab and submit a post. Then click 'Refresh' here to see it analyzed automatically.")
 
 st.markdown("---")
 
 # Control buttons
-col_ref1, col_ref2, col_ref3, col_ref4 = st.columns([3, 1, 1, 1])
+col_ref1, col_ref2, col_ref3 = st.columns([4, 1, 1])
 
 with col_ref2:
     auto_refresh = st.checkbox("🔄 Auto", value=False, help="Auto-refresh every 3 seconds")
@@ -510,52 +512,6 @@ with col_ref3:
     if st.button("🔄 Refresh", use_container_width=True):
         if 'ebay_forum_posts_v1' in st.session_state:
             st.session_state.forum_posts = st.session_state['ebay_forum_posts_v1']
-        st.rerun()
-
-with col_ref4:
-    if st.button("📥 Demo", use_container_width=True):
-        # Load sample posts for demo
-        demo_posts = {
-            'forum_post_demo_001': {
-                'id': 'demo_001',
-                'username': 'demo_user1',
-                'board': 'Selling',
-                'title': 'Seller Warning',
-                'content': 'Seller abc123 is a total scammer! Avoid at all costs. Call me at 020-5555-1234 for details.',
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'ai_analyzed': False,
-                'status': 'pending',
-                'reports': [],
-                'source': 'demo'
-            },
-            'forum_post_demo_002': {
-                'id': 'demo_002',
-                'username': 'clean_user',
-                'board': 'Buying',
-                'title': 'Pricing Question',
-                'content': 'What is the best way to price vintage items for international shipping?',
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'ai_analyzed': False,
-                'status': 'pending',
-                'reports': [],
-                'source': 'demo'
-            },
-            'forum_post_demo_003': {
-                'id': 'demo_003',
-                'username': 'angry_user',
-                'board': 'General Discussion',
-                'title': 'Frustrated with platform',
-                'content': 'You people are all idiots! This platform is f*cking terrible and the support is awful.',
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'ai_analyzed': False,
-                'status': 'pending',
-                'reports': [{'reporter': 'user123', 'reason': 'Disrespectful Language', 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}],
-                'source': 'demo'
-            }
-        }
-        st.session_state.forum_posts = demo_posts
-        st.session_state['ebay_forum_posts_v1'] = demo_posts
-        st.success("✅ Loaded 3 demo posts!")
         st.rerun()
 
 # Auto-refresh functionality
@@ -686,7 +642,7 @@ else:
                     st.session_state.viewing_user_profile = post['username']
                     st.rerun()
         else:
-            st.info("No approved posts yet")
+            st.success("✅ No approved posts in queue")
     
     with col_reported:
         st.subheader("👤 User Reported")
@@ -718,7 +674,7 @@ else:
                         st.session_state.viewing_user_profile = post['username']
                         st.rerun()
         else:
-            st.success("No user reports")
+            st.success("✅ No user reports in queue")
     
     with col_flagged:
         st.subheader("🚨 AI Flagged")
@@ -759,10 +715,10 @@ else:
                         st.session_state.viewing_user_profile = post['username']
                         st.rerun()
         else:
-            st.success("No flagged posts")
+            st.success("✅ No violations detected")
     
     st.markdown("---")
 
 st.markdown("---")
-st.caption("eBay AI Moderation Dashboard v6.0 | Auto-Classification | Real-Time Analysis | Complete Stats")
-st.caption("💡 Posts from Forum App are automatically analyzed and sorted into columns")
+st.caption("eBay AI Moderation Dashboard v6.0 | Auto-Classification | Real-Time Analysis | Production Ready")
+st.caption("💡 Posts from Forum App are automatically analyzed and classified in real-time")
