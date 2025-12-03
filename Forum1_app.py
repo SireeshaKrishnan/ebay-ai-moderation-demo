@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import datetime
 import json
+import time
 
 st.set_page_config(page_title="eBay Community - Test Board", page_icon="💬", layout="wide")
 
@@ -165,67 +166,45 @@ st.markdown('<div class="main-header"><h1>🛒 eBay Community - Forums</h1></div
 st.markdown("### 💬 Welcome to the eBay Community Test Board")
 st.success("✨ **LIVE CONNECTION:** Posts automatically sync to Moderator Dashboard in real-time!")
 
-# AUTO-LOAD posts from storage on every page load
-if 'last_storage_check' not in st.session_state:
-    st.session_state.last_storage_check = 0
-
-# Load posts from storage automatically
-current_time = datetime.now().timestamp()
-if current_time - st.session_state.last_storage_check > 2:  # Check every 2 seconds
-    loaded_posts_component = st.components.v1.html("""
-    <script>
-    async function autoLoadPosts() {
-        if (window.storage) {
-            try {
-                const keys = await window.storage.list('forum_post_', true);
-                const posts = {};
-                let count = 0;
-                
-                if (keys && keys.keys) {
-                    for (const key of keys.keys) {
-                        try {
-                            const result = await window.storage.get(key, true);
-                            if (result && result.value) {
-                                posts[key] = JSON.parse(result.value);
-                                count++;
+# Manual load button
+if st.button("📥 Load All Posts from Storage", use_container_width=True, type="primary"):
+    with st.spinner("Loading posts from storage..."):
+        load_component = st.components.v1.html("""
+        <script>
+        async function loadPosts() {
+            if (window.storage) {
+                try {
+                    const keys = await window.storage.list('forum_post_', true);
+                    let count = 0;
+                    
+                    if (keys && keys.keys) {
+                        for (const key of keys.keys) {
+                            try {
+                                const result = await window.storage.get(key, true);
+                                if (result && result.value) {
+                                    count++;
+                                }
+                            } catch (e) {
+                                console.error('Error loading', key, e);
                             }
-                        } catch (e) {
-                            console.error('Error loading', key, e);
                         }
                     }
+                    
+                    console.log('📥 Loaded', count, 'posts from storage');
+                    return count;
+                } catch (e) {
+                    console.error('Storage load error:', e);
+                    return 0;
                 }
-                
-                console.log('📥 Auto-loaded', count, 'posts from storage');
-                
-                // Return count to Streamlit
-                window.parent.postMessage({
-                    type: 'streamlit:setComponentValue',
-                    value: {count: count, posts: posts}
-                }, '*');
-                
-                return {count: count, posts: posts};
-            } catch (e) {
-                console.error('Storage load error:', e);
-                return {count: 0, posts: {}};
             }
-        } else {
-            console.warn('Storage API not available');
-            return {count: 0, posts: {}};
+            return 0;
         }
-    }
-    
-    autoLoadPosts();
-    </script>
-    """, height=0, key=f"autoload_{current_time}")
-    
-    if loaded_posts_component and isinstance(loaded_posts_component, dict):
-        if 'posts' in loaded_posts_component and loaded_posts_component['posts']:
-            st.session_state.forum_posts = loaded_posts_component['posts']
-            st.session_state['ebay_forum_posts_v1'] = loaded_posts_component['posts']
-            if loaded_posts_component.get('count', 0) > 0:
-                st.info(f"📥 Loaded {loaded_posts_component['count']} posts from storage")
-    
-    st.session_state.last_storage_check = current_time
+        loadPosts();
+        </script>
+        """, height=0)
+        st.success("✅ Loading initiated! Posts will sync to the dashboard automatically.")
+        time.sleep(1)
+        st.rerun()
 
 # eBay Boards
 BOARDS = [
@@ -291,7 +270,6 @@ with st.form("new_post_form"):
             st.session_state['posts_sync_timestamp'] = datetime.now().timestamp()
             
             # CRITICAL: Save to shared storage for React dashboard - WITH RETRY
-            import json
             save_result = st.components.v1.html(f"""
             <script>
             async function saveWithRetry() {{
@@ -489,7 +467,6 @@ if st.session_state.forum_posts:
                         st.session_state['ebay_forum_posts_v1'][storage_key]['replies'] = st.session_state.forum_posts[storage_key]['replies']
                         
                         # Save updated post to storage
-                        import json
                         updated_post = st.session_state.forum_posts[storage_key]
                         st.components.v1.html(f"""
                         <script>
@@ -564,7 +541,6 @@ col1, col2 = st.columns([3, 1])
 with col1:
     if st.checkbox("🔄 Enable Auto-Refresh (every 10 seconds)", value=False):
         st.info("Auto-refresh enabled! Page will update automatically.")
-        import time
         time.sleep(10)
         st.rerun()
 
