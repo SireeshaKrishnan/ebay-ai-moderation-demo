@@ -1,9 +1,7 @@
 import streamlit as st
 import pandas as pd
-import time
 import re
 from datetime import datetime, timedelta
-import json
 
 # ================================
 # PAGE CONFIG
@@ -90,90 +88,8 @@ st.markdown("""
     border-radius: 10px;
     margin: 10px 0;
 }
-
-.clickable-username {
-    color: #0066cc;
-    cursor: pointer;
-    text-decoration: underline;
-    font-weight: bold;
-}
 </style>
 """, unsafe_allow_html=True)
-
-# ================================
-# STORAGE LOADER - Sync with Forum App
-# ================================
-
-def load_posts_from_storage():
-    """Load posts from shared storage (written by Forum app)"""
-    try:
-        # Get all forum posts from shared storage
-        result = st.components.v1.html("""
-        <script>
-        async function loadAllPosts() {
-            try {
-                if (window.storage) {
-                    const keys = await window.storage.list('forum_post_', true);
-                    const posts = {};
-                    
-                    if (keys && keys.keys) {
-                        for (const key of keys.keys) {
-                            try {
-                                const result = await window.storage.get(key, true);
-                                if (result && result.value) {
-                                    posts[key] = JSON.parse(result.value);
-                                }
-                            } catch (e) {
-                                console.error('Error loading ' + key + ':', e);
-                            }
-                        }
-                    }
-                    
-                    // Send posts back to Streamlit
-                    window.parent.postMessage({
-                        type: 'streamlit:setComponentValue',
-                        value: posts
-                    }, '*');
-                    
-                    return posts;
-                } else {
-                    console.log('Storage API not available yet');
-                    return {};
-                }
-            } catch (error) {
-                console.error('Error in loadAllPosts:', error);
-                return {};
-            }
-        }
-        
-        // Run immediately
-        loadAllPosts();
-        </script>
-        """, height=0)
-        
-        if result:
-            return result
-        return {}
-    except Exception as e:
-        st.error(f"Error loading posts: {e}")
-        return {}
-
-async def save_post_to_storage(post_id, post_data):
-    """Save updated post back to shared storage"""
-    try:
-        st.components.v1.html(f"""
-        <script>
-        async function savePost() {{
-            if (window.storage) {{
-                await window.storage.set('forum_post_{post_id}', JSON.stringify({json.dumps(post_data)}), true);
-                console.log('Post updated: {post_id}');
-            }}
-        }}
-        savePost();
-        </script>
-        """, height=0)
-    except Exception as e:
-        st.error(f"Error saving post: {e}")
 
 # ================================
 # STATS STORAGE
@@ -181,14 +97,11 @@ async def save_post_to_storage(post_id, post_data):
 
 def init_stats_storage():
     """Initialize comprehensive stats storage"""
-    if 'moderation_log' not in st.session_state:
-        st.session_state.moderation_log = []
+    if 'action_log' not in st.session_state:
+        st.session_state.action_log = []
     
     if 'violation_log' not in st.session_state:
         st.session_state.violation_log = []
-    
-    if 'action_log' not in st.session_state:
-        st.session_state.action_log = []
     
     if 'user_profiles' not in st.session_state:
         st.session_state.user_profiles = {}
@@ -205,10 +118,7 @@ def log_moderation_action(post_id, action_type, moderator, username, details=Non
         'details': details or {}
     }
     st.session_state.action_log.append(log_entry)
-    
-    # Update user profile
     update_user_profile(username, 'action', log_entry)
-    
     return log_entry
 
 def log_violation(post_id, username, violation_type, severity, confidence, evidence):
@@ -224,32 +134,7 @@ def log_violation(post_id, username, violation_type, severity, confidence, evide
         'evidence': evidence
     }
     st.session_state.violation_log.append(violation_entry)
-    
-    # Update user profile
     update_user_profile(username, 'violation', violation_entry)
-    
-    return violation_entry
-
-def log_custom_violation(post_id, username, violation_description, severity, evidence):
-    """Log a custom "Other" violation with description"""
-    violation_type = f"Other - {violation_description}"
-    
-    violation_entry = {
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'post_id': post_id,
-        'username': username,
-        'violation_type': violation_type,
-        'severity': severity,
-        'confidence': 100,
-        'evidence': evidence,
-        'is_custom': True
-    }
-    st.session_state.violation_log.append(violation_entry)
-    
-    # Update user profile
-    update_user_profile(username, 'violation', violation_entry)
-    
     return violation_entry
 
 def update_user_profile(username, event_type, event_data):
@@ -289,7 +174,6 @@ def update_user_profile(username, event_type, event_data):
     
     elif event_type == 'action':
         profile['actions'].append(event_data)
-        
         if event_data['action_type'] == 'banned':
             profile['status'] = 'banned'
 
@@ -355,9 +239,6 @@ def get_stats_for_period(start_date, end_date):
         'high': len([v for v in violations_in_period if v['severity'] == 'high']),
         'medium': len([v for v in violations_in_period if v['severity'] == 'medium']),
         'low': len([v for v in violations_in_period if v['severity'] == 'low']),
-        
-        'actions': actions_in_period,
-        'violations': violations_in_period
     }
     
     return stats
@@ -495,17 +376,15 @@ init_stats_storage()
 if 'forum_posts' not in st.session_state:
     st.session_state.forum_posts = {}
 
+if 'ebay_forum_posts_v1' not in st.session_state:
+    st.session_state['ebay_forum_posts_v1'] = {}
+
 if 'viewing_user_profile' not in st.session_state:
     st.session_state.viewing_user_profile = None
 
-if 'last_sync_time' not in st.session_state:
-    st.session_state.last_sync_time = None
-
-# Load posts from shared storage on page load/refresh
-loaded_posts = load_posts_from_storage()
-if loaded_posts:
-    st.session_state.forum_posts = loaded_posts
-    st.session_state.last_sync_time = datetime.now()
+# Sync with forum app
+if 'ebay_forum_posts_v1' in st.session_state and st.session_state['ebay_forum_posts_v1']:
+    st.session_state.forum_posts = st.session_state['ebay_forum_posts_v1']
 
 # ================================
 # USER PROFILE VIEW
@@ -557,7 +436,6 @@ def show_user_profile(username):
                 st.markdown(f"**Severity:** {v['severity'].upper()}")
                 st.markdown(f"**Confidence:** {v['confidence']}%")
                 st.markdown(f"**Evidence:** {v['evidence']}")
-                st.markdown(f"**Date:** {v['date']}")
     else:
         st.success("✅ No violations on record - Clean user!")
     
@@ -584,17 +462,68 @@ def show_user_profile(username):
 
 st.title("🛡️ eBay Community AI Moderation Dashboard")
 st.markdown("**Ultra-Strict Policy Engine | Real-Time Sync | Complete Stats Tracking**")
-st.success(f"✨ Connected to Forum App | Last sync: {st.session_state.last_sync_time.strftime('%H:%M:%S') if st.session_state.last_sync_time else 'Never'}")
+
+# Sync status
+if st.session_state.forum_posts:
+    st.success(f"✨ Connected to Forum App | {len(st.session_state.forum_posts)} posts loaded")
+else:
+    st.info("📡 Ready to sync - Click 'Load Demo Data' or refresh after posting in Forum App")
+
 st.markdown("---")
 
-# Auto-refresh button
-col_refresh1, col_refresh2 = st.columns([5, 1])
-with col_refresh2:
-    if st.button("🔄 Sync Now", use_container_width=True):
-        loaded_posts = load_posts_from_storage()
-        if loaded_posts:
-            st.session_state.forum_posts = loaded_posts
-            st.session_state.last_sync_time = datetime.now()
+# Control buttons
+col_ref1, col_ref2, col_ref3 = st.columns([4, 1, 1])
+
+with col_ref2:
+    if st.button("🔄 Refresh", use_container_width=True):
+        if 'ebay_forum_posts_v1' in st.session_state:
+            st.session_state.forum_posts = st.session_state['ebay_forum_posts_v1']
+        st.rerun()
+
+with col_ref3:
+    if st.button("📥 Demo Data", use_container_width=True):
+        # Load sample posts for demo
+        demo_posts = {
+            'forum_post_demo_001': {
+                'id': 'demo_001',
+                'username': 'demo_user1',
+                'board': 'Selling',
+                'title': 'Seller Warning',
+                'content': 'Seller abc123 is a total scammer! Avoid at all costs. Call me at 020-5555-1234 for details.',
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'ai_analyzed': False,
+                'status': 'pending',
+                'reports': [],
+                'source': 'demo'
+            },
+            'forum_post_demo_002': {
+                'id': 'demo_002',
+                'username': 'clean_user',
+                'board': 'Buying',
+                'title': 'Pricing Question',
+                'content': 'What is the best way to price vintage items for international shipping?',
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'ai_analyzed': False,
+                'status': 'pending',
+                'reports': [],
+                'source': 'demo'
+            },
+            'forum_post_demo_003': {
+                'id': 'demo_003',
+                'username': 'angry_user',
+                'board': 'General Discussion',
+                'title': 'Frustrated with platform',
+                'content': 'You people are all idiots! This platform is f*cking terrible and the support is awful.',
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'ai_analyzed': False,
+                'status': 'pending',
+                'reports': [{'reporter': 'user123', 'reason': 'Disrespectful Language', 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')}],
+                'source': 'demo'
+            }
+        }
+        st.session_state.forum_posts = demo_posts
+        st.session_state['ebay_forum_posts_v1'] = demo_posts
+        st.success("✅ Loaded 3 demo posts!")
         st.rerun()
 
 # ================================
@@ -606,7 +535,7 @@ with st.sidebar:
     
     quick_filter = st.selectbox(
         "Time Period",
-        ["Today", "Yesterday", "Last 7 Days", "Last 30 Days", "Last Week", "Last Month", "Custom"]
+        ["Today", "Yesterday", "Last 7 Days", "Last 30 Days", "Custom"]
     )
     
     if quick_filter == "Today":
@@ -621,14 +550,6 @@ with st.sidebar:
     elif quick_filter == "Last 30 Days":
         start_date = datetime.now() - timedelta(days=30)
         end_date = datetime.now()
-    elif quick_filter == "Last Week":
-        end_of_last_week = datetime.now() - timedelta(days=datetime.now().weekday() + 1)
-        start_date = end_of_last_week - timedelta(days=6)
-        end_date = end_of_last_week.replace(hour=23, minute=59)
-    elif quick_filter == "Last Month":
-        last_month = datetime.now().replace(day=1) - timedelta(days=1)
-        start_date = last_month.replace(day=1, hour=0, minute=0)
-        end_date = last_month.replace(hour=23, minute=59)
     else:
         start_date = st.date_input("Start", value=datetime.now() - timedelta(days=7))
         end_date = st.date_input("End", value=datetime.now())
@@ -640,41 +561,27 @@ with st.sidebar:
     
     col1, col2 = st.columns(2)
     with col1:
-        st.metric("Total Actions", period_stats['total_actions'])
+        st.metric("Actions", period_stats['total_actions'])
     with col2:
-        st.metric("Total Violations", period_stats['total_violations'])
+        st.metric("Violations", period_stats['total_violations'])
     
     st.markdown("---")
-    st.subheader("🔧 Actions Taken")
-    st.caption("All moderation actions in selected period")
+    st.subheader("🔧 Actions")
     
     st.markdown(f"🤖 **Analyzed:** {period_stats['analyzed']}")
-    st.markdown(f"✅ **Approved/NAR:** {period_stats['no_action_required']}")
+    st.markdown(f"✅ **Approved:** {period_stats['no_action_required']}")
     st.markdown(f"✏️ **Edited:** {period_stats['edited']}")
     st.markdown(f"🗑️ **Removed:** {period_stats['removed']}")
-    st.markdown(f"📦 **Moved:** {period_stats['moved']}")
-    st.markdown(f"🔒 **Locked:** {period_stats['locked']}")
-    st.markdown(f"🔗 **Merged:** {period_stats['merged']}")
-    st.markdown(f"⚠️ **Warned:** {period_stats['warned']}")
-    st.markdown(f"🔄 **Overridden:** {period_stats['overridden']}")
     st.markdown(f"🚫 **Banned:** {period_stats['banned']}")
     
     st.markdown("---")
-    st.subheader("⚠️ Violations Detected")
+    st.subheader("⚠️ Violations")
     
-    st.markdown(f"🚨 **PII (Personal Info):** {period_stats['pii_violations']}")
-    st.markdown(f"👤 **Naming & Shaming:** {period_stats['naming_violations']}")
+    st.markdown(f"🚨 **PII:** {period_stats['pii_violations']}")
+    st.markdown(f"👤 **Naming:** {period_stats['naming_violations']}")
     st.markdown(f"😠 **Disrespect:** {period_stats['disrespect_violations']}")
-    st.markdown(f"🗂️ **Wrong Board:** {period_stats['wrong_board_violations']}")
-    st.markdown(f"📴 **Off-Topic:** {period_stats['off_topic_violations']}")
     st.markdown(f"📧 **Spam:** {period_stats['spam_violations']}")
-    st.markdown(f"📢 **Advertising:** {period_stats['advertising_violations']}")
-    st.markdown(f"💰 **Fee Avoidance:** {period_stats['fee_avoidance_violations']}")
-    st.markdown(f"📋 **Duplicate Content:** {period_stats['duplicate_violations']}")
-    st.markdown(f"🔧 **Moderation Discussion:** {period_stats['moderation_discussion_violations']}")
-    st.markdown(f"⚖️ **Policy Breach:** {period_stats['policy_breach_violations']}")
-    st.markdown(f"🕰️ **Necroposting:** {period_stats['necropost_violations']}")
-    st.markdown(f"❓ **Other Violations:** {period_stats['other_violations']}")
+    st.markdown(f"❓ **Other:** {period_stats['other_violations']}")
     
     st.markdown("---")
     st.subheader("🎯 By Severity")
@@ -718,7 +625,7 @@ else:
                 st.markdown(f"""
                 <div class="approved-section">
                     <strong>#{post['id'][:8]}</strong> | {post['board']}<br>
-                    👤 <span class="clickable-username">{post['username']}</span><br>
+                    👤 {post['username']}<br>
                     🕒 {post['timestamp']}<br><br>
                     <em>{post['content'][:80]}...</em><br><br>
                     ✅ {post.get('confidence', 95)}% Assured
@@ -744,7 +651,7 @@ else:
                 <div class="{css_class}">
                     <strong>#{post['id'][:8]}</strong><br>
                     👤 {post['username']}<br>
-                    Reports: {report_count}
+                    🚩 {report_count} report(s)
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -824,20 +731,32 @@ else:
                     if st.button(f"🤖 Analyze with AI", key=f"pend_{post['id']}", use_container_width=True):
                         with st.spinner("Analyzing..."):
                             analysis = analyze_post_ultra_strict(post['content'], post['id'], post['board'], post['username'])
-                            st.session_state.forum_posts[f"forum_post_{post['id']}"]['ai_analyzed'] = True
-                            st.session_state.forum_posts[f"forum_post_{post['id']}"]['overall_status'] = analysis['overall_status']
-                            st.session_state.forum_posts[f"forum_post_{post['id']}"]['confidence'] = analysis['confidence']
-                            st.session_state.forum_posts[f"forum_post_{post['id']}"]['priority'] = analysis['priority']
-                            st.session_state.forum_posts[f"forum_post_{post['id']}"]['violations_detected'] = analysis['violations_detected']
+                            
+                            # Update post in session state
+                            post_key = f"forum_post_{post['id']}"
+                            if post_key in st.session_state.forum_posts:
+                                st.session_state.forum_posts[post_key]['ai_analyzed'] = True
+                                st.session_state.forum_posts[post_key]['overall_status'] = analysis['overall_status']
+                                st.session_state.forum_posts[post_key]['confidence'] = analysis['confidence']
+                                st.session_state.forum_posts[post_key]['priority'] = analysis['priority']
+                                st.session_state.forum_posts[post_key]['violations_detected'] = analysis['violations_detected']
+                            else:
+                                # If not in forum_posts, it's one of our demo posts
+                                st.session_state.forum_posts[post['id']]['ai_analyzed'] = True
+                                st.session_state.forum_posts[post['id']]['overall_status'] = analysis['overall_status']
+                                st.session_state.forum_posts[post['id']]['confidence'] = analysis['confidence']
+                                st.session_state.forum_posts[post['id']]['priority'] = analysis['priority']
+                                st.session_state.forum_posts[post['id']]['violations_detected'] = analysis['violations_detected']
+                            
                             update_user_profile(post['username'], 'post', {})
-                            st.success("✅ Complete!")
+                            st.success("✅ Analysis complete!")
                             st.rerun()
                 with col_b:
-                    if st.button("View User", key=f"profile_p_{post['id']}", use_container_width=True):
+                    if st.button("User", key=f"profile_p_{post['id']}", use_container_width=True):
                         st.session_state.viewing_user_profile = post['username']
                         st.rerun()
     else:
         st.success("✅ All posts analyzed!")
 
 st.markdown("---")
-st.caption("eBay AI Moderation Dashboard v5.0 | Real-Time Sync with Forum App | Complete Stats Tracking")
+st.caption("eBay AI Moderation Dashboard v5.0 | Complete Stats Tracking | User Profiles")
