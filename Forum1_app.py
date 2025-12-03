@@ -165,75 +165,67 @@ st.markdown('<div class="main-header"><h1>🛒 eBay Community - Forums</h1></div
 st.markdown("### 💬 Welcome to the eBay Community Test Board")
 st.success("✨ **LIVE CONNECTION:** Posts automatically sync to Moderator Dashboard in real-time!")
 
-# Add Load Posts button at the top
-col_load1, col_load2, col_load3 = st.columns([4, 1, 1])
+# AUTO-LOAD posts from storage on every page load
+if 'last_storage_check' not in st.session_state:
+    st.session_state.last_storage_check = 0
 
-with col_load2:
-    if st.button("📥 Load All Posts", use_container_width=True, help="Load all posts from storage"):
-        # Trigger a rerun to load posts
-        st.session_state['trigger_load'] = True
-        st.rerun()
-
-with col_load3:
-    if st.button("🔄 Refresh", use_container_width=True):
-        st.rerun()
-
-# Load posts from storage on page load or when triggered
-if 'posts_loaded_once' not in st.session_state:
-    st.session_state.posts_loaded_once = False
-
-if not st.session_state.posts_loaded_once or st.session_state.get('trigger_load', False):
-    with st.spinner("Loading posts from storage..."):
-        loaded_posts = st.components.v1.html("""
-        <script>
-        async function loadAllPostsFromStorage() {
-            if (window.storage) {
-                try {
-                    const keys = await window.storage.list('forum_post_', true);
-                    const posts = {};
-                    
-                    if (keys && keys.keys) {
-                        for (const key of keys.keys) {
-                            try {
-                                const result = await window.storage.get(key, true);
-                                if (result && result.value) {
-                                    const post = JSON.parse(result.value);
-                                    posts[key] = post;
-                                }
-                            } catch (e) {
-                                console.error('Error loading post:', key, e);
+# Load posts from storage automatically
+current_time = datetime.now().timestamp()
+if current_time - st.session_state.last_storage_check > 2:  # Check every 2 seconds
+    loaded_posts_component = st.components.v1.html("""
+    <script>
+    async function autoLoadPosts() {
+        if (window.storage) {
+            try {
+                const keys = await window.storage.list('forum_post_', true);
+                const posts = {};
+                let count = 0;
+                
+                if (keys && keys.keys) {
+                    for (const key of keys.keys) {
+                        try {
+                            const result = await window.storage.get(key, true);
+                            if (result && result.value) {
+                                posts[key] = JSON.parse(result.value);
+                                count++;
                             }
+                        } catch (e) {
+                            console.error('Error loading', key, e);
                         }
                     }
-                    
-                    console.log('📥 Loaded', Object.keys(posts).length, 'posts from storage');
-                    
-                    // Return to Streamlit
-                    window.parent.postMessage({
-                        type: 'streamlit:setComponentValue',
-                        value: posts
-                    }, '*');
-                    
-                    return posts;
-                } catch (e) {
-                    console.error('Storage load error:', e);
-                    return {};
                 }
+                
+                console.log('📥 Auto-loaded', count, 'posts from storage');
+                
+                // Return count to Streamlit
+                window.parent.postMessage({
+                    type: 'streamlit:setComponentValue',
+                    value: {count: count, posts: posts}
+                }, '*');
+                
+                return {count: count, posts: posts};
+            } catch (e) {
+                console.error('Storage load error:', e);
+                return {count: 0, posts: {}};
             }
-            return {};
+        } else {
+            console.warn('Storage API not available');
+            return {count: 0, posts: {}};
         }
-        
-        loadAllPostsFromStorage();
-        </script>
-        """, height=0)
-        
-        if loaded_posts and isinstance(loaded_posts, dict) and len(loaded_posts) > 0:
-            st.session_state.forum_posts.update(loaded_posts)
-            st.session_state['ebay_forum_posts_v1'].update(loaded_posts)
-            st.success(f"✅ Loaded {len(loaded_posts)} posts from storage!")
-        
-        st.session_state.posts_loaded_once = True
-        st.session_state['trigger_load'] = False
+    }
+    
+    autoLoadPosts();
+    </script>
+    """, height=0, key=f"autoload_{current_time}")
+    
+    if loaded_posts_component and isinstance(loaded_posts_component, dict):
+        if 'posts' in loaded_posts_component and loaded_posts_component['posts']:
+            st.session_state.forum_posts = loaded_posts_component['posts']
+            st.session_state['ebay_forum_posts_v1'] = loaded_posts_component['posts']
+            if loaded_posts_component.get('count', 0) > 0:
+                st.info(f"📥 Loaded {loaded_posts_component['count']} posts from storage")
+    
+    st.session_state.last_storage_check = current_time
 
 # eBay Boards
 BOARDS = [
@@ -298,25 +290,61 @@ with st.form("new_post_form"):
             st.session_state['ebay_forum_posts_v1'][storage_key] = post_data
             st.session_state['posts_sync_timestamp'] = datetime.now().timestamp()
             
-            # CRITICAL: Save to shared storage for React dashboard
+            # CRITICAL: Save to shared storage for React dashboard - WITH RETRY
             import json
-            st.components.v1.html(f"""
+            save_result = st.components.v1.html(f"""
             <script>
-            async function saveToStorage() {{
-                if (window.storage) {{
-                    const postData = {json.dumps(post_data)};
-                    await window.storage.set('forum_post_{post_id}', JSON.stringify(postData), true);
-                    console.log('✅ Post saved to shared storage: forum_post_{post_id}');
-                }} else {{
-                    console.error('❌ Storage API not available');
+            async function saveWithRetry() {{
+                let attempts = 0;
+                const maxAttempts = 3;
+                
+                while (attempts < maxAttempts) {{
+                    try {{
+                        if (window.storage) {{
+                            const postData = {json.dumps(post_data)};
+                            await window.storage.set('forum_post_{post_id}', JSON.stringify(postData), true);
+                            console.log('✅ Post saved to storage:', 'forum_post_{post_id}');
+                            
+                            // Verify save
+                            const verify = await window.storage.get('forum_post_{post_id}', true);
+                            if (verify && verify.value) {{
+                                console.log('✅ Save verified!');
+                                
+                                // Return success to Streamlit
+                                window.parent.postMessage({{
+                                    type: 'streamlit:setComponentValue',
+                                    value: {{success: true, postId: '{post_id}'}}
+                                }}, '*');
+                                
+                                return true;
+                            }}
+                        }} else {{
+                            console.warn('Storage API not available, attempt', attempts + 1);
+                        }}
+                    }} catch (e) {{
+                        console.error('Save attempt', attempts + 1, 'failed:', e);
+                    }}
+                    attempts++;
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms between attempts
                 }}
+                
+                console.error('❌ Failed to save post after', maxAttempts, 'attempts');
+                window.parent.postMessage({{
+                    type: 'streamlit:setComponentValue',
+                    value: {{success: false, postId: '{post_id}'}}
+                }}, '*');
+                return false;
             }}
-            saveToStorage();
+            saveWithRetry();
             </script>
-            """, height=0)
+            """, height=0, key=f"save_{post_id}")
             
-            st.success(f"✅ Post submitted to **{board}** board!")
-            st.info("🤖 **Your post is now syncing to the Moderator Dashboard!** Open the React dashboard to see it.")
+            if save_result and isinstance(save_result, dict) and save_result.get('success'):
+                st.success(f"✅ Post submitted to **{board}** board and saved to storage!")
+                st.info("🤖 **Your post is now syncing to the Moderator Dashboard!** Open the React dashboard to see it.")
+            else:
+                st.warning(f"⚠️ Post submitted to **{board}** board but storage save may have failed. Check the React dashboard.")
+            
             st.balloons()
             
             # Show what moderators will see
