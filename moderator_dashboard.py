@@ -382,9 +382,37 @@ if 'ebay_forum_posts_v1' not in st.session_state:
 if 'viewing_user_profile' not in st.session_state:
     st.session_state.viewing_user_profile = None
 
-# Sync with forum app
+# Sync with forum app and AUTO-ANALYZE new posts
 if 'ebay_forum_posts_v1' in st.session_state and st.session_state['ebay_forum_posts_v1']:
     st.session_state.forum_posts = st.session_state['ebay_forum_posts_v1']
+    
+    # AUTO-ANALYZE: Check for any unanalyzed posts and analyze them automatically
+    for post_key, post in st.session_state.forum_posts.items():
+        if not post.get('ai_analyzed', False):
+            # Automatically analyze this post
+            analysis = analyze_post_ultra_strict(
+                post['content'], 
+                post['id'], 
+                post.get('board', 'Unknown'), 
+                post['username']
+            )
+            
+            # Update post with analysis results
+            st.session_state.forum_posts[post_key]['ai_analyzed'] = True
+            st.session_state.forum_posts[post_key]['overall_status'] = analysis['overall_status']
+            st.session_state.forum_posts[post_key]['confidence'] = analysis['confidence']
+            st.session_state.forum_posts[post_key]['priority'] = analysis['priority']
+            st.session_state.forum_posts[post_key]['violations_detected'] = analysis['violations_detected']
+            
+            # Also update in ebay_forum_posts_v1
+            if post_key in st.session_state['ebay_forum_posts_v1']:
+                st.session_state['ebay_forum_posts_v1'][post_key]['ai_analyzed'] = True
+                st.session_state['ebay_forum_posts_v1'][post_key]['overall_status'] = analysis['overall_status']
+                st.session_state['ebay_forum_posts_v1'][post_key]['confidence'] = analysis['confidence']
+                st.session_state['ebay_forum_posts_v1'][post_key]['priority'] = analysis['priority']
+                st.session_state['ebay_forum_posts_v1'][post_key]['violations_detected'] = analysis['violations_detected']
+            
+            update_user_profile(post['username'], 'post', {})
 
 # ================================
 # USER PROFILE VIEW
@@ -461,27 +489,31 @@ def show_user_profile(username):
 # ================================
 
 st.title("🛡️ eBay Community AI Moderation Dashboard")
-st.markdown("**Ultra-Strict Policy Engine | Real-Time Sync | Complete Stats Tracking**")
+st.markdown("**Ultra-Strict Policy Engine | Real-Time Auto-Classification | Complete Stats Tracking**")
 
-# Sync status
+# Sync status with auto-analyze indicator
 if st.session_state.forum_posts:
-    st.success(f"✨ Connected to Forum App | {len(st.session_state.forum_posts)} posts loaded")
+    analyzed_count = len([p for p in st.session_state.forum_posts.values() if p.get('ai_analyzed')])
+    st.success(f"✨ LIVE: {len(st.session_state.forum_posts)} posts loaded | {analyzed_count} analyzed | Auto-classification active")
 else:
-    st.info("📡 Ready to sync - Click 'Load Demo Data' or refresh after posting in Forum App")
+    st.info("📡 Waiting for posts from Forum App | Click 'Load Demo Data' to test")
 
 st.markdown("---")
 
 # Control buttons
-col_ref1, col_ref2, col_ref3 = st.columns([4, 1, 1])
+col_ref1, col_ref2, col_ref3, col_ref4 = st.columns([3, 1, 1, 1])
 
 with col_ref2:
+    auto_refresh = st.checkbox("🔄 Auto", value=False, help="Auto-refresh every 3 seconds")
+
+with col_ref3:
     if st.button("🔄 Refresh", use_container_width=True):
         if 'ebay_forum_posts_v1' in st.session_state:
             st.session_state.forum_posts = st.session_state['ebay_forum_posts_v1']
         st.rerun()
 
-with col_ref3:
-    if st.button("📥 Demo Data", use_container_width=True):
+with col_ref4:
+    if st.button("📥 Demo", use_container_width=True):
         # Load sample posts for demo
         demo_posts = {
             'forum_post_demo_001': {
@@ -525,6 +557,12 @@ with col_ref3:
         st.session_state['ebay_forum_posts_v1'] = demo_posts
         st.success("✅ Loaded 3 demo posts!")
         st.rerun()
+
+# Auto-refresh functionality
+if auto_refresh:
+    import time
+    time.sleep(3)
+    st.rerun()
 
 # ================================
 # SIDEBAR STATS
@@ -607,9 +645,20 @@ else:
     
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Posts", len(all_posts))
-    col2.metric("✅ AI Approved", len(ai_approved))
-    col3.metric("👤 User Reported", len(user_reported))
-    col4.metric("🚨 AI Flagged", len(ai_flagged))
+    col2.metric("✅ AI Approved", len(ai_approved), delta=f"{len(ai_approved)}", delta_color="normal")
+    col3.metric("👤 User Reported", len(user_reported), delta=f"{len(user_reported)}" if len(user_reported) > 0 else "0", delta_color="off")
+    col4.metric("🚨 AI Flagged", len(ai_flagged), delta=f"{len(ai_flagged)}" if len(ai_flagged) > 0 else "0", delta_color="inverse")
+    
+    # Show classification status
+    if all_posts:
+        analyzed_pct = (len([p for p in all_posts if p.get('ai_analyzed')]) / len(all_posts)) * 100
+        st.progress(analyzed_pct / 100)
+        st.caption(f"📊 Classification Status: {analyzed_pct:.0f}% analyzed and auto-sorted")
+    
+    st.markdown("---")
+    
+    # Add info banner
+    st.info("🤖 **AUTO-CLASSIFICATION ACTIVE:** Posts are automatically analyzed and sorted into columns below")
     
     st.markdown("---")
     
@@ -618,29 +667,30 @@ else:
     
     with col_approved:
         st.subheader("✅ AI Approved")
-        st.caption(f"{len(ai_approved)} posts")
+        st.caption(f"{len(ai_approved)} posts • Auto-classified as clean")
         
         if ai_approved:
             for post in ai_approved[:10]:
                 st.markdown(f"""
                 <div class="approved-section">
-                    <strong>#{post['id'][:8]}</strong> | {post['board']}<br>
+                    <strong>#{post['id'][:8]}</strong> | {post.get('board', 'Unknown')}<br>
                     👤 {post['username']}<br>
-                    🕒 {post['timestamp']}<br><br>
-                    <em>{post['content'][:80]}...</em><br><br>
-                    ✅ {post.get('confidence', 95)}% Assured
+                    🕒 {post['timestamp']}<br>
+                    📋 <strong>{post.get('title', 'Untitled')}</strong><br><br>
+                    <em>{post['content'][:100]}...</em><br><br>
+                    ✅ {post.get('confidence', 95)}% Confidence • No violations detected
                 </div>
                 """, unsafe_allow_html=True)
                 
-                if st.button(f"View Profile", key=f"profile_a_{post['id']}", use_container_width=True):
+                if st.button(f"👤 View Profile", key=f"profile_a_{post['id']}", use_container_width=True):
                     st.session_state.viewing_user_profile = post['username']
                     st.rerun()
         else:
-            st.info("No approved posts")
+            st.info("No approved posts yet")
     
     with col_reported:
         st.subheader("👤 User Reported")
-        st.caption(f"{len(user_reported)} posts")
+        st.caption(f"{len(user_reported)} posts • Requires review")
         
         if user_reported:
             for post in sorted(user_reported, key=lambda x: len(x.get('reports', [])), reverse=True)[:10]:
@@ -649,33 +699,30 @@ else:
                 
                 st.markdown(f"""
                 <div class="{css_class}">
-                    <strong>#{post['id'][:8]}</strong><br>
+                    <strong>#{post['id'][:8]}</strong> | {post.get('board', 'Unknown')}<br>
                     👤 {post['username']}<br>
-                    🚩 {report_count} report(s)
+                    🕒 {post['timestamp']}<br>
+                    📋 <strong>{post.get('title', 'Untitled')}</strong><br><br>
+                    <em>{post['content'][:100]}...</em><br><br>
+                    🚩 <strong>{report_count} report(s)</strong>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 col_a, col_b = st.columns(2)
                 with col_a:
-                    if st.button(f"Analyze", key=f"analyze_{post['id']}", use_container_width=True):
-                        analysis = analyze_post_ultra_strict(post['content'], post['id'], post['board'], post['username'])
-                        st.session_state.forum_posts[f"forum_post_{post['id']}"]['ai_analyzed'] = True
-                        st.session_state.forum_posts[f"forum_post_{post['id']}"]['overall_status'] = analysis['overall_status']
-                        st.session_state.forum_posts[f"forum_post_{post['id']}"]['confidence'] = analysis['confidence']
-                        st.session_state.forum_posts[f"forum_post_{post['id']}"]['priority'] = analysis['priority']
-                        st.session_state.forum_posts[f"forum_post_{post['id']}"]['violations_detected'] = analysis['violations_detected']
-                        update_user_profile(post['username'], 'post', {})
-                        st.rerun()
+                    if st.button(f"✅ Approve", key=f"approve_r_{post['id']}", use_container_width=True):
+                        log_moderation_action(post['id'], "approved", "Moderator", post['username'])
+                        st.success("Approved")
                 with col_b:
-                    if st.button(f"Profile", key=f"profile_r_{post['id']}", use_container_width=True):
+                    if st.button(f"👤 Profile", key=f"profile_r_{post['id']}", use_container_width=True):
                         st.session_state.viewing_user_profile = post['username']
                         st.rerun()
         else:
-            st.success("No reports")
+            st.success("No user reports")
     
     with col_flagged:
         st.subheader("🚨 AI Flagged")
-        st.caption(f"{len(ai_flagged)} posts")
+        st.caption(f"{len(ai_flagged)} posts • Auto-detected violations")
         
         if ai_flagged:
             for post in sorted(ai_flagged, key=lambda x: {'critical':0,'high':1,'medium':2}.get(x.get('priority','low'),3))[:10]:
@@ -685,78 +732,37 @@ else:
                 
                 st.markdown(f"""
                 <div class="{css_class}">
-                    {emoji} <strong>{priority.upper()}</strong><br>
-                    #{post['id'][:8]}<br>
-                    👤 {post['username']}<br><br>
+                    {emoji} <strong>{priority.upper()} PRIORITY</strong><br>
+                    #{post['id'][:8]} | {post.get('board', 'Unknown')}<br>
+                    👤 {post['username']}<br>
+                    🕒 {post['timestamp']}<br>
+                    📋 <strong>{post.get('title', 'Untitled')}</strong><br><br>
+                    <strong>Violations Detected:</strong><br>
                 """, unsafe_allow_html=True)
                 
                 for v in post.get('violations_detected', []):
-                    st.markdown(f"• {v['type']}<br>", unsafe_allow_html=True)
+                    st.markdown(f"• {v['type']} ({v['confidence']}%)<br>", unsafe_allow_html=True)
                 
                 st.markdown("</div>", unsafe_allow_html=True)
                 
                 col_a, col_b, col_c = st.columns(3)
                 with col_a:
-                    if st.button("✅", key=f"accept_{post['id']}"):
-                        log_moderation_action(post['id'], "approved", "Moderator", post['username'])
-                        st.success("Approved")
+                    if st.button("✅", key=f"accept_{post['id']}", help="Approve (Override AI)"):
+                        log_moderation_action(post['id'], "overridden", "Moderator", post['username'])
+                        st.success("Override")
                 with col_b:
-                    if st.button("✏️", key=f"edit_{post['id']}"):
+                    if st.button("✏️", key=f"edit_{post['id']}", help="Edit Post"):
                         log_moderation_action(post['id'], "edited", "Moderator", post['username'])
                         st.info("Edited")
                 with col_c:
-                    if st.button("👤", key=f"profile_f_{post['id']}"):
+                    if st.button("👤", key=f"profile_f_{post['id']}", help="View User Profile"):
                         st.session_state.viewing_user_profile = post['username']
                         st.rerun()
         else:
-            st.success("No flags")
+            st.success("No flagged posts")
     
     st.markdown("---")
-    
-    # Pending Analysis
-    st.header("⏳ Pending Analysis")
-    
-    pending = [p for p in all_posts if not p.get('ai_analyzed')]
-    
-    if pending:
-        st.warning(f"📥 {len(pending)} post(s) awaiting analysis")
-        
-        for post in pending[:5]:
-            with st.expander(f"Post #{post['id'][:8]} - {post['username']}"):
-                st.markdown(f"**Board:** {post['board']}")
-                st.markdown(f"**Content:** {post['content']}")
-                
-                col_a, col_b = st.columns([3,1])
-                with col_a:
-                    if st.button(f"🤖 Analyze with AI", key=f"pend_{post['id']}", use_container_width=True):
-                        with st.spinner("Analyzing..."):
-                            analysis = analyze_post_ultra_strict(post['content'], post['id'], post['board'], post['username'])
-                            
-                            # Update post in session state
-                            post_key = f"forum_post_{post['id']}"
-                            if post_key in st.session_state.forum_posts:
-                                st.session_state.forum_posts[post_key]['ai_analyzed'] = True
-                                st.session_state.forum_posts[post_key]['overall_status'] = analysis['overall_status']
-                                st.session_state.forum_posts[post_key]['confidence'] = analysis['confidence']
-                                st.session_state.forum_posts[post_key]['priority'] = analysis['priority']
-                                st.session_state.forum_posts[post_key]['violations_detected'] = analysis['violations_detected']
-                            else:
-                                # If not in forum_posts, it's one of our demo posts
-                                st.session_state.forum_posts[post['id']]['ai_analyzed'] = True
-                                st.session_state.forum_posts[post['id']]['overall_status'] = analysis['overall_status']
-                                st.session_state.forum_posts[post['id']]['confidence'] = analysis['confidence']
-                                st.session_state.forum_posts[post['id']]['priority'] = analysis['priority']
-                                st.session_state.forum_posts[post['id']]['violations_detected'] = analysis['violations_detected']
-                            
-                            update_user_profile(post['username'], 'post', {})
-                            st.success("✅ Analysis complete!")
-                            st.rerun()
-                with col_b:
-                    if st.button("User", key=f"profile_p_{post['id']}", use_container_width=True):
-                        st.session_state.viewing_user_profile = post['username']
-                        st.rerun()
-    else:
-        st.success("✅ All posts analyzed!")
 
 st.markdown("---")
-st.caption("eBay AI Moderation Dashboard v5.0 | Complete Stats Tracking | User Profiles")
+st.caption("eBay AI Moderation Dashboard v6.0 | Auto-Classification | Real-Time Analysis | Complete Stats")
+st.caption("💡 Posts from Forum App are automatically analyzed and sorted into columns")
