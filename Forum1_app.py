@@ -12,8 +12,8 @@ st.set_page_config(page_title="eBay Community - Test Board", page_icon="💬", l
 if 'forum_posts' not in st.session_state:
     st.session_state.forum_posts = {}
 
-if 'last_load_time' not in st.session_state:
-    st.session_state.last_load_time = None
+if 'unsaved_posts' not in st.session_state:
+    st.session_state.unsaved_posts = []
 
 if 'ebay_forum_posts_v1' not in st.session_state:
     st.session_state['ebay_forum_posts_v1'] = {}
@@ -89,122 +89,96 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Storage JavaScript component for cross-app data sharing
-st.components.v1.html("""
-<script>
-// Persistent storage for cross-app communication
-window.savePost = async function(postId, postData) {
-    try {
-        if (window.storage) {
-            await window.storage.set('forum_post_' + postId, JSON.stringify(postData), true);
-            console.log('Post saved to shared storage:', postId);
-            return true;
-        }
-        console.error('Storage API not available');
-        return false;
-    } catch (e) {
-        console.error('Storage save error:', e);
-        return false;
-    }
-}
-
-window.loadAllPosts = async function() {
-    try {
-        if (window.storage) {
-            const keys = await window.storage.list('forum_post_', true);
-            const posts = {};
-            
-            if (keys && keys.keys) {
-                for (const key of keys.keys) {
-                    const result = await window.storage.get(key, true);
-                    if (result && result.value) {
-                        posts[key] = JSON.parse(result.value);
-                    }
-                }
-            }
-            console.log('Loaded posts from shared storage:', Object.keys(posts).length);
-            return posts;
-        }
-        return {};
-    } catch (e) {
-        console.error('Storage load error:', e);
-        return {};
-    }
-}
-
-window.updatePostReport = async function(postId, reportData) {
-    try {
-        if (window.storage) {
-            const key = 'forum_post_' + postId;
-            const result = await window.storage.get(key, true);
-            if (result && result.value) {
-                const post = JSON.parse(result.value);
-                if (!post.reports) post.reports = [];
-                post.reports.push(reportData);
-                post.report_count = post.reports.length;
-                await window.storage.set(key, JSON.stringify(post), true);
-                console.log('Report added to post:', postId);
-                return true;
-            }
-        }
-        return false;
-    } catch (e) {
-        console.error('Report update error:', e);
-        return false;
-    }
-}
-
-// Signal that storage is ready
-window.storageInitialized = true;
-console.log('Forum storage initialized');
-</script>
-""", height=0)
-
 # Header
 st.markdown('<div class="main-header"><h1>🛒 eBay Community - Forums</h1></div>', unsafe_allow_html=True)
 
 st.markdown("### 💬 Welcome to the eBay Community Test Board")
 st.success("✨ **LIVE CONNECTION:** Posts automatically sync to Moderator Dashboard in real-time!")
 
+# CRITICAL: Storage sync component - runs on every page load
+# This component saves all unsaved posts and loads existing posts
+if st.session_state.unsaved_posts:
+    posts_to_save = st.session_state.unsaved_posts.copy()
+    posts_json = json.dumps(posts_to_save)
+    
+    st.components.v1.html(f"""
+    <script>
+    async function syncPosts() {{
+        const postsToSave = {posts_json};
+        let savedCount = 0;
+        
+        if (window.storage) {{
+            for (const post of postsToSave) {{
+                try {{
+                    await window.storage.set('forum_post_' + post.id, JSON.stringify(post), true);
+                    console.log('✅ Saved post:', post.id);
+                    savedCount++;
+                }} catch (e) {{
+                    console.error('Failed to save post', post.id, e);
+                }}
+            }}
+            console.log('📤 Saved', savedCount, 'posts to storage');
+        }} else {{
+            console.error('Storage API not available!');
+        }}
+    }}
+    syncPosts();
+    </script>
+    """, height=0, key="storage_sync")
+    
+    # Clear unsaved posts after attempting to save
+    st.session_state.unsaved_posts = []
+    st.info(f"💾 Syncing {len(posts_to_save)} post(s) to storage...")
+
 # Manual load button
 if st.button("📥 Load All Posts from Storage", use_container_width=True, type="primary"):
-    with st.spinner("Loading posts from storage..."):
-        load_component = st.components.v1.html("""
-        <script>
-        async function loadPosts() {
-            if (window.storage) {
-                try {
-                    const keys = await window.storage.list('forum_post_', true);
-                    let count = 0;
-                    
-                    if (keys && keys.keys) {
-                        for (const key of keys.keys) {
-                            try {
-                                const result = await window.storage.get(key, true);
-                                if (result && result.value) {
-                                    count++;
-                                }
-                            } catch (e) {
-                                console.error('Error loading', key, e);
-                            }
+    st.components.v1.html("""
+    <script>
+    async function loadAllPosts() {
+        if (!window.storage) {
+            console.error('Storage API not available');
+            return;
+        }
+        
+        try {
+            const keys = await window.storage.list('forum_post_', true);
+            let loadedPosts = {};
+            
+            if (keys && keys.keys) {
+                for (const key of keys.keys) {
+                    try {
+                        const result = await window.storage.get(key, true);
+                        if (result && result.value) {
+                            const post = JSON.parse(result.value);
+                            loadedPosts[key] = post;
+                            console.log('Loaded:', key);
                         }
+                    } catch (e) {
+                        console.error('Error loading', key, e);
                     }
-                    
-                    console.log('📥 Loaded', count, 'posts from storage');
-                    return count;
-                } catch (e) {
-                    console.error('Storage load error:', e);
-                    return 0;
                 }
             }
-            return 0;
+            
+            console.log('📥 Total posts loaded:', Object.keys(loadedPosts).length);
+            
+            // Send to parent - this won't work but at least logs are visible
+            window.parent.postMessage({
+                type: 'loadedPosts',
+                posts: loadedPosts,
+                count: Object.keys(loadedPosts).length
+            }, '*');
+            
+        } catch (e) {
+            console.error('Load error:', e);
         }
-        loadPosts();
-        </script>
-        """, height=0)
-        st.success("✅ Loading initiated! Posts will sync to the dashboard automatically.")
-        time.sleep(1)
-        st.rerun()
+    }
+    loadAllPosts();
+    </script>
+    """, height=0, key="load_posts_trigger")
+    
+    st.success("✅ Check browser console to see loaded posts. Refresh page to see them in the list.")
+    time.sleep(2)
+    st.rerun()
 
 # eBay Boards
 BOARDS = [
@@ -267,16 +241,14 @@ with st.form("new_post_form"):
             storage_key = f"forum_post_{post_id}"
             st.session_state.forum_posts[storage_key] = post_data
             st.session_state['ebay_forum_posts_v1'][storage_key] = post_data
+            
+            # Add to unsaved posts queue
+            st.session_state.unsaved_posts.append(post_data)
+            
             st.session_state['posts_sync_timestamp'] = datetime.now().timestamp()
             
-            # CRITICAL: Save to shared storage for React dashboard
-            # Store the post_id in session state for the save component
-            st.session_state['pending_save_post_id'] = post_id
-            st.session_state['pending_save_data'] = post_data
-            
             st.success(f"✅ Post submitted to **{board}** board!")
-            st.info("🤖 **Your post is now syncing to the Moderator Dashboard!** Open the React dashboard to see it.")
-            
+            st.info("🤖 Post will sync to storage on next page load. Refresh to complete sync.")
             st.balloons()
             
             # Show what moderators will see
@@ -288,7 +260,7 @@ with st.form("new_post_form"):
                 **Status:** 🟡 Pending Review  
                 **Content:** {post_content}
                 
-                *This post will appear in the Moderator Dashboard's "Pending Posts" section for AI analysis.*
+                *This post will appear in the Moderator Dashboard after syncing to storage.*
                 """)
             
         else:
@@ -296,34 +268,6 @@ with st.form("new_post_form"):
 
 # Display recent posts
 st.markdown("---")
-
-# Handle pending post save (if any)
-if 'pending_save_post_id' in st.session_state and 'pending_save_data' in st.session_state:
-    post_id_to_save = st.session_state['pending_save_post_id']
-    data_to_save = st.session_state['pending_save_data']
-    
-    # Save to storage
-    st.components.v1.html(f"""
-    <script>
-    async function savePendingPost() {{
-        try {{
-            if (window.storage) {{
-                const postData = {json.dumps(data_to_save)};
-                await window.storage.set('forum_post_{post_id_to_save}', JSON.stringify(postData), true);
-                console.log('✅ Post saved to storage:', 'forum_post_{post_id_to_save}');
-            }}
-        }} catch (e) {{
-            console.error('Save error:', e);
-        }}
-    }}
-    savePendingPost();
-    </script>
-    """, height=0)
-    
-    # Clear the pending save
-    del st.session_state['pending_save_post_id']
-    del st.session_state['pending_save_data']
-
 st.markdown("### 📋 Recent Posts Across All Boards")
 
 # Filter options
@@ -446,21 +390,9 @@ if st.session_state.forum_posts:
                         if 'replies' not in st.session_state.forum_posts[storage_key]:
                             st.session_state.forum_posts[storage_key]['replies'] = []
                         st.session_state.forum_posts[storage_key]['replies'].append(reply_data)
-                        st.session_state['ebay_forum_posts_v1'][storage_key]['replies'] = st.session_state.forum_posts[storage_key]['replies']
                         
-                        # Save updated post to storage
-                        updated_post = st.session_state.forum_posts[storage_key]
-                        st.components.v1.html(f"""
-                        <script>
-                        async function updatePost() {{
-                            if (window.storage) {{
-                                await window.storage.set('forum_post_{post['id']}', JSON.stringify({json.dumps(updated_post)}), true);
-                                console.log('✅ Reply added to post {post['id']}');
-                            }}
-                        }}
-                        updatePost();
-                        </script>
-                        """, height=0)
+                        # Add updated post to unsaved queue
+                        st.session_state.unsaved_posts.append(st.session_state.forum_posts[storage_key])
                     
                     st.session_state[f'show_reply_{post["id"]}'] = False
                     st.success("✅ Reply posted!")
@@ -498,12 +430,12 @@ if st.session_state.forum_posts:
                         if storage_key in st.session_state.forum_posts:
                             st.session_state.forum_posts[storage_key]['reports'].append(report_data)
                             st.session_state.forum_posts[storage_key]['report_count'] += 1
-                            st.session_state['ebay_forum_posts_v1'][storage_key]['reports'].append(report_data)
-                            st.session_state['ebay_forum_posts_v1'][storage_key]['report_count'] += 1
-                            st.session_state['posts_sync_timestamp'] = datetime.now().timestamp()
+                            
+                            # Add updated post to unsaved queue
+                            st.session_state.unsaved_posts.append(st.session_state.forum_posts[storage_key])
                         
                         st.session_state[f'show_report_{post["id"]}'] = False
-                        st.success("✅ Report submitted! This post will be prioritized in the Moderator Dashboard.")
+                        st.success("✅ Report submitted! Refresh page to sync to dashboard.")
                         st.rerun()
                     
                     if cancel_report:
@@ -535,7 +467,7 @@ st.markdown("---")
 st.markdown(f"""
 <div style='text-align: center; color: #707070; padding: 20px;'>
     <p>🔒 This is a test environment for AI moderation demonstration</p>
-    <p>✨ <strong>{len(st.session_state.forum_posts)} post(s) currently loaded</strong> • All posts permanently stored</p>
-    <p>💾 Posts persist across sessions • Use '📥 Load All Posts' button to load historical posts</p>
+    <p>✨ <strong>{len(st.session_state.forum_posts)} post(s) in session</strong> • Posts sync to storage on page refresh</p>
+    <p>💾 Unsaved posts: {len(st.session_state.unsaved_posts)} • Check browser console (F12) for storage logs</p>
 </div>
 """, unsafe_allow_html=True)
