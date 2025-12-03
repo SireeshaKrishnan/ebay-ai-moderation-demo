@@ -165,6 +165,76 @@ st.markdown('<div class="main-header"><h1>🛒 eBay Community - Forums</h1></div
 st.markdown("### 💬 Welcome to the eBay Community Test Board")
 st.success("✨ **LIVE CONNECTION:** Posts automatically sync to Moderator Dashboard in real-time!")
 
+# Add Load Posts button at the top
+col_load1, col_load2, col_load3 = st.columns([4, 1, 1])
+
+with col_load2:
+    if st.button("📥 Load All Posts", use_container_width=True, help="Load all posts from storage"):
+        # Trigger a rerun to load posts
+        st.session_state['trigger_load'] = True
+        st.rerun()
+
+with col_load3:
+    if st.button("🔄 Refresh", use_container_width=True):
+        st.rerun()
+
+# Load posts from storage on page load or when triggered
+if 'posts_loaded_once' not in st.session_state:
+    st.session_state.posts_loaded_once = False
+
+if not st.session_state.posts_loaded_once or st.session_state.get('trigger_load', False):
+    with st.spinner("Loading posts from storage..."):
+        loaded_posts = st.components.v1.html("""
+        <script>
+        async function loadAllPostsFromStorage() {
+            if (window.storage) {
+                try {
+                    const keys = await window.storage.list('forum_post_', true);
+                    const posts = {};
+                    
+                    if (keys && keys.keys) {
+                        for (const key of keys.keys) {
+                            try {
+                                const result = await window.storage.get(key, true);
+                                if (result && result.value) {
+                                    const post = JSON.parse(result.value);
+                                    posts[key] = post;
+                                }
+                            } catch (e) {
+                                console.error('Error loading post:', key, e);
+                            }
+                        }
+                    }
+                    
+                    console.log('📥 Loaded', Object.keys(posts).length, 'posts from storage');
+                    
+                    // Return to Streamlit
+                    window.parent.postMessage({
+                        type: 'streamlit:setComponentValue',
+                        value: posts
+                    }, '*');
+                    
+                    return posts;
+                } catch (e) {
+                    console.error('Storage load error:', e);
+                    return {};
+                }
+            }
+            return {};
+        }
+        
+        loadAllPostsFromStorage();
+        </script>
+        """, height=0)
+        
+        if loaded_posts and isinstance(loaded_posts, dict) and len(loaded_posts) > 0:
+            st.session_state.forum_posts.update(loaded_posts)
+            st.session_state['ebay_forum_posts_v1'].update(loaded_posts)
+            st.success(f"✅ Loaded {len(loaded_posts)} posts from storage!")
+        
+        st.session_state.posts_loaded_once = True
+        st.session_state['trigger_load'] = False
+
 # eBay Boards
 BOARDS = [
     "Selling", "Buying", "Payments", "Postage & Shipping",
@@ -216,6 +286,7 @@ with st.form("new_post_form"):
                 "source": "forum_user",
                 "report_count": 0,
                 "reports": [],
+                "replies": [],
                 "moderation_note": "",
                 "violations": [],
                 "ai_analyzed": False
@@ -227,8 +298,25 @@ with st.form("new_post_form"):
             st.session_state['ebay_forum_posts_v1'][storage_key] = post_data
             st.session_state['posts_sync_timestamp'] = datetime.now().timestamp()
             
+            # CRITICAL: Save to shared storage for React dashboard
+            import json
+            st.components.v1.html(f"""
+            <script>
+            async function saveToStorage() {{
+                if (window.storage) {{
+                    const postData = {json.dumps(post_data)};
+                    await window.storage.set('forum_post_{post_id}', JSON.stringify(postData), true);
+                    console.log('✅ Post saved to shared storage: forum_post_{post_id}');
+                }} else {{
+                    console.error('❌ Storage API not available');
+                }}
+            }}
+            saveToStorage();
+            </script>
+            """, height=0)
+            
             st.success(f"✅ Post submitted to **{board}** board!")
-            st.info("🤖 **Your post is now visible in the Moderator Dashboard!** Open the dashboard and refresh to see it.")
+            st.info("🤖 **Your post is now syncing to the Moderator Dashboard!** Open the React dashboard to see it.")
             st.balloons()
             
             # Show what moderators will see
@@ -294,17 +382,22 @@ if st.session_state.forum_posts:
         report_count = len(post.get('reports', []))
         report_badge = f'<span class="report-badge">🚩 {report_count} report(s)</span>' if report_count > 0 else ''
         
+        # Count replies
+        replies = post.get('replies', [])
+        reply_count = len(replies)
+        
         st.markdown(f"""
         <div class="post-card">
             <p>
                 <span class="username">{post['username']}</span> 
-                <span class="timestamp">• {post['timestamp']}</span>
+                <span class="timestamp">• Posted on {post['timestamp']}</span>
                 <span class="board-badge">📌 {post.get('board', 'General Discussion')}</span>
                 {status_badge}
                 {report_badge}
             </p>
             <h4>{post['title']}</h4>
             <p>{post['content']}</p>
+            <p style="color: #666; font-size: 0.9em;">💬 {reply_count} replies</p>
             {f"<p><em>Moderator note: {post.get('moderation_note', '')}</em></p>" if post.get('moderation_note') else ''}
         </div>
         """, unsafe_allow_html=True)
@@ -315,13 +408,80 @@ if st.session_state.forum_posts:
                 for v in post['violations']:
                     st.warning(f"**{v.get('type')}**: {v.get('evidence')}")
         
-        # Report button
-        col1, col2, col3 = st.columns([1, 6, 1])
+        # Show replies if any
+        if replies:
+            with st.expander(f"💬 View {reply_count} Replies"):
+                for reply in replies:
+                    st.markdown(f"""
+                    <div style="background-color: #f8f9fa; padding: 10px; margin: 5px 0; border-left: 3px solid #ccc;">
+                        <strong>{reply['username']}</strong> • <span style="color: #666; font-size: 0.85em;">{reply['timestamp']}</span><br>
+                        {reply['content']}
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        # Reply form and Report button
+        col1, col2, col3 = st.columns([1, 4, 1])
         
         with col1:
             report_key = f"report_btn_{post['id']}"
             if st.button(f"🚩 Report", key=report_key):
                 st.session_state[f'show_report_{post["id"]}'] = True
+        
+        with col2:
+            reply_key = f"reply_btn_{post['id']}"
+            if st.button(f"💬 Reply", key=reply_key):
+                st.session_state[f'show_reply_{post["id"]}'] = True
+        
+        # Show reply form
+        if st.session_state.get(f'show_reply_{post["id"]}', False):
+            with st.form(f"reply_form_{post['id']}"):
+                reply_username = st.text_input("Your Username", value="community_user", key=f"reply_user_{post['id']}")
+                reply_content = st.text_area("Your Reply", placeholder="Type your reply here...", key=f"reply_content_{post['id']}")
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    submit_reply = st.form_submit_button("📤 Post Reply", use_container_width=True)
+                with col_b:
+                    cancel_reply = st.form_submit_button("❌ Cancel", use_container_width=True)
+                
+                if submit_reply and reply_content:
+                    # Create reply
+                    reply_data = {
+                        "username": reply_username,
+                        "content": reply_content,
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    
+                    # Add reply to post
+                    storage_key = f"forum_post_{post['id']}"
+                    if storage_key in st.session_state.forum_posts:
+                        if 'replies' not in st.session_state.forum_posts[storage_key]:
+                            st.session_state.forum_posts[storage_key]['replies'] = []
+                        st.session_state.forum_posts[storage_key]['replies'].append(reply_data)
+                        st.session_state['ebay_forum_posts_v1'][storage_key]['replies'] = st.session_state.forum_posts[storage_key]['replies']
+                        
+                        # Save updated post to storage
+                        import json
+                        updated_post = st.session_state.forum_posts[storage_key]
+                        st.components.v1.html(f"""
+                        <script>
+                        async function updatePost() {{
+                            if (window.storage) {{
+                                await window.storage.set('forum_post_{post['id']}', JSON.stringify({json.dumps(updated_post)}), true);
+                                console.log('✅ Reply added to post {post['id']}');
+                            }}
+                        }}
+                        updatePost();
+                        </script>
+                        """, height=0)
+                    
+                    st.session_state[f'show_reply_{post["id"]}'] = False
+                    st.success("✅ Reply posted!")
+                    st.rerun()
+                
+                if cancel_reply:
+                    st.session_state[f'show_reply_{post["id"]}'] = False
+                    st.rerun()
         
         # Show report form if button clicked
         if st.session_state.get(f'show_report_{post["id"]}', False):
@@ -365,7 +525,9 @@ if st.session_state.forum_posts:
         
         st.markdown("---")
 else:
-    st.info("📭 No posts yet. Be the first to post!")
+    st.info("📭 No posts loaded yet.")
+    st.markdown("### 👆 Click the '📥 Load All Posts' button above to load existing posts from storage")
+    st.markdown("### OR submit a new post using the form above")
 
 # Auto-refresh option
 st.markdown("---")
@@ -387,7 +549,7 @@ st.markdown("---")
 st.markdown(f"""
 <div style='text-align: center; color: #707070; padding: 20px;'>
     <p>🔒 This is a test environment for AI moderation demonstration</p>
-    <p>✨ <strong>{len(st.session_state.forum_posts)} total post(s)</strong> • Posts sync in real-time with Moderator Dashboard</p>
-    <p>Community members can report posts that violate guidelines</p>
+    <p>✨ <strong>{len(st.session_state.forum_posts)} post(s) currently loaded</strong> • All posts permanently stored</p>
+    <p>💾 Posts persist across sessions • Use '📥 Load All Posts' button to load historical posts</p>
 </div>
 """, unsafe_allow_html=True)
